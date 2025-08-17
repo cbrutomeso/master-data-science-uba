@@ -1,0 +1,217 @@
+---
+title: "Trabajo Práctico 5: ANOVA y Visualización de Multivariados"
+author: "Carlos Brutomeso"
+date: "06/06/2025"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+    toc_float: yes
+    df_print: paged
+    theme: united
+    code_download: true
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+
+# Instalación (si aún no están instalados)
+#install.packages("tidyverse", repos = "https://cloud.r-project.org")
+#install.packages("car", repos = "https://cloud.r-project.org")
+#install.packages("factoextra", repos = "https://cloud.r-project.org")
+#install.packages("anacor", repos = "https://cloud.r-project.org")
+#install.packages("gplots", repos = "https://cloud.r-project.org")
+
+#install.packages("glue", repos = "https://cloud.r-project.org")
+library(tidyverse)
+library(car)
+
+```
+
+## 1. Análisis Exploratorio
+
+### Estadísticas Descriptivas
+Los tres métodos presentan la misma desviación estándar (1.87), lo cual indica una variabilidad similar dentro de cada grupo. Sin embargo, las diferencias en las medias son claras: el método colaborativo se destaca con una media de 84.5, seguido por el tecnológico con 80.5 y el tradicional con 73.5.
+
+```{r}
+
+# Datos
+metodo_tradicional <- c(74, 71, 76, 73, 72, 75)
+metodo_colaborativo <- c(82, 85, 83, 87, 84, 86)
+metodo_tecnologico <- c(78, 81, 79, 82, 80, 83)
+
+# Media
+mean_trad <- mean(metodo_tradicional)
+mean_colab <- mean(metodo_colaborativo)
+mean_tecno <- mean(metodo_tecnologico)
+
+# Mediana
+median_trad <- median(metodo_tradicional)
+median_colab <- median(metodo_colaborativo)
+median_tecno <- median(metodo_tecnologico)
+
+# Desviación estándar
+sd_trad <- sd(metodo_tradicional)
+sd_colab <- sd(metodo_colaborativo)
+sd_tecno <- sd(metodo_tecnologico)
+
+data.frame(
+  Metodo = c("Tradicional", "Colaborativo", "Tecnológico"),
+  Media = c(mean_trad, mean_colab, mean_tecno),
+  Mediana = c(median_trad, median_colab, median_tecno),
+  SD = c(sd_trad, sd_colab, sd_tecno)
+)
+```
+
+### Boxplot comparativo
+El boxplot muestra de forma clara que el método colaborativo alcanza los puntajes más altos en promedio. El método tecnológico se ubica en un nivel intermedio tanto en puntajes, mientras que el método tradicional presenta los puntajes más bajos. Ninguno de los tres métodos presentan valores atípicos. Esto refuerza la idea de que el enfoque colaborativo podría ser el más efectivo entre los tres.
+```{r}
+# Datos en formato largo
+df <- data.frame(
+  puntaje = c(metodo_tradicional, metodo_colaborativo, metodo_tecnologico),
+  metodo = factor(rep(c("Tradicional", "Colaborativo", "Tecnológico"), each = 6))
+)
+
+# Boxplot
+ggplot(df, aes(x = metodo, y = puntaje, fill = metodo)) +
+  geom_boxplot() +
+  theme_minimal() +
+  labs(title = "Distribución de puntajes por método", x = "Método", y = "Puntaje")
+```
+
+
+### Hipótesis Preliminar
+Basado en las estadísticas descriptivas y la visualización mediante boxplot, el método colaborativo se perfila como el más efectivo, con una media de 84.5 puntos, por encima del tecnológico (80.5) y del tradicional (73.5). Dado que las desviaciones estándar son idénticas (1.87) en los tres grupos, la variabilidad dentro de cada método es similar. En este contexto, la diferencia de 11 puntos entre el método colaborativo y el tradicional resulta considerable y podría tener un impacto educativo significativo.
+
+
+
+## 2. Verificación de Supuestos
+
+### A. Independencia
+
+El diseño experimental garantiza la independencia de las observaciones por varios motivos. En primer lugar, los estudiantes fueron seleccionados aleatoriamente y asignados de forma aleatoria a uno de los tres métodos de enseñanza, lo que reduce la posibilidad de sesgos sistemáticos. Además, cada grupo trabajó por separado durante las cuatro semanas de instrucción, sin interacción entre sí, y cada estudiante fue evaluado de forma individual. No hay indicios de influencia o contacto entre los participantes que pudieran comprometer la independencia de los datos. Todo esto respalda que las condiciones del experimento permiten asumir que las observaciones son independientes entre sí.
+
+### B. Normalidad
+
+Evaluamos la normalidad de las puntuaciones dentro de cada grupo usando el test de Shapiro-Wilk. A su vez, analizamos la normalidad de los residuos del modelo ANOVA, tanto con test estadístico como visualmente a través de un gráfico Q-Q. El nivel de significancia adoptado es de 0.05. Con base en los resultados del test de Shapiro-Wilk y el gráfico Q-Q, se puede concluir que no hay evidencia suficiente para rechazar el supuesto de normalidad en los datos.
+
+En primer lugar, los tres grupos por separado (tradicional, colaborativo y tecnológico) presentan exactamente el mismo estadístico W = 0.98189 con un p-valor de 0.9606. Este valor está ampliamente por encima del umbral de significancia adoptado, por lo que se concluye que no hay suficiente evidencia para considerar que las puntuaciones dentro de cada método no están normalmente distribuidas.
+
+Luego, al ajustar el modelo ANOVA y evaluar la normalidad de los residuos, el test de Shapiro-Wilk devuelve un estadístico W = 0.9169 con un p-valor de 0.1139. Nuevamente, este valor es mayor a 0.05, por lo que no se rechaza la hipótesis nula de normalidad de los residuos.
+
+En cuanto al gráfico Q-Q, los puntos se alinean razonablemente bien con la recta teórica. Aunque hay algunas pequeñas desviaciones en los extremos (lo cual es común en muestras pequeñas), no se observa una curvatura sistemática ni patrones extraños, lo que respalda visualmente la validez del supuesto de normalidad.
+
+En resumen, tanto el análisis estadístico como la inspección gráfica indican que el supuesto de normalidad está razonablemente cumplido, lo cual permite continuar con el análisis ANOVA sin necesidad de transformaciones ni ajustes adicionales.
+
+```{r}
+# Shapiro-Wilk por método
+shapiro.test(metodo_tradicional)
+shapiro.test(metodo_colaborativo)
+shapiro.test(metodo_tecnologico)
+
+# Ajuste del modelo ANOVA y análisis de residuos
+modelo <- aov(puntaje ~ metodo, data = df)
+residuos <- residuals(modelo)
+
+# Shapiro-Wilk para los residuos
+shapiro.test(residuos)
+
+# Q-Q Plot
+qqnorm(residuos); qqline(residuos)
+```
+
+
+### C. Homocedasticidad
+
+Para verificar el supuesto de homocedasticidad, se aplicó la prueba de Levene. Esta prueba evalúa si las varianzas poblacionales pueden considerarse estadísticamente iguales, independientemente de la forma de las distribuciones.
+
+El resultado obtenido fue un valor F prácticamente nulo (F = 1.26 × 10⁻³⁰) y un p-valor de 1. Esto implica que no hay evidencia alguna para rechazar la hipótesis nula de igualdad de varianzas. En otras palabras, las varianzas de los tres métodos de enseñanza pueden considerarse equivalentes, lo que valida el cumplimiento del supuesto de homocedasticidad requerido por el análisis de varianza.
+
+Dado que los tres grupos tienen además el mismo valor exacto de desviación estándar (1.87), este resultado era esperable y se confirma tanto por el análisis numérico como por la inspección gráfica previa.
+```{r}
+leveneTest(puntaje ~ metodo, data = df)
+```
+
+En conjunto, los tres supuestos necesarios para aplicar ANOVA parecen razonablemente satisfechos con estos datos.
+
+
+## 3. Análisis de Varianza
+
+### Hipótesis planteadas
+
+El análisis de varianza se propone contrastar si existen diferencias significativas en los puntajes medios entre los tres métodos de enseñanza. Las hipótesis se formulan del siguiente modo:
+
+- Hipótesis nula ($H_{0}$): \( \mu_{\text{Trad}} = \mu_{\text{Colab}} = \mu_{\text{Tecno}} \)
+- Hipótesis alternativa ($H_{1}$): Al menos uno de los métodos tiene una media diferente.
+
+### ¿Por qué no hacer varias pruebas t?
+
+Aplicar pruebas t independientes para comparar cada par de métodos puede parecer una opción razonable, pero es estadísticamente inapropiada. Al realizar múltiples pruebas t, se incrementa la probabilidad de cometer al menos un error tipo I (es decir, rechazar la hipótesis nula cuando en realidad es verdadera). Este problema se conoce como inflación del error tipo I. Por ejemplo, si se realizan tres pruebas t con un nivel de significancia de $\alpha = 0.05$ en cada una, la probabilidad de cometer al menos un error tipo I es aproximadamente $1−(0.95)^{3}=0.1426$, es decir, un 14.26%. El análisis de varianza (ANOVA) permite evaluar simultáneamente todas las diferencias entre grupos mientras mantiene controlado el nivel de significancia global, evitando así esta inflación del error.
+
+### Interpretación del estadístico F
+
+El estadístico F en ANOVA compara dos tipos de variabilidad. Por un lado, cuánta variación hay entre los grupos (es decir, cuán distintos son los promedios de los métodos), y por otro lado, cuánta variación hay dentro de los grupos (es decir, cuánto varían los puntajes entre estudiantes del mismo método). Se calcula como:
+
+\[
+F = \frac{\text{MCentre}}{\text{MCdentro}}
+\]
+
+- **MCentre** representa la variabilidad explicada por el modelo, es decir, cuánto se separan los promedios de los métodos entre sí.
+- **MCdentro** representa la variabilidad residual, es decir, cuánto varían los puntajes dentro de cada método.
+
+Si los grupos tienen promedios muy distintos entre sí (alta MCentre) y los estudiantes dentro de cada grupo son más bien parecidos (baja MCdentro), el valor de F será grande. Eso sugiere que las diferencias observadas entre métodos no son producto del azar, sino que el método de enseñanza realmente influye en los resultados.
+
+
+### Decisión estadística 
+Con un valor F de 53.14 y un p-valor extremadamente pequeño (1.56 × 10⁻⁷), muy inferior al nivel de significancia de 0.05, se rechaza la hipótesis nula de igualdad de medias entre los grupos. Este resultado indica que existen diferencias estadísticamente significativas en los puntajes obtenidos según el método de enseñanza utilizado.
+
+En otras palabras, el análisis ANOVA proporciona evidencia sólida de que el tipo de método aplicado influye en el desempeño de los estudiantes. Estas diferencias no pueden atribuirse al azar, por lo que corresponde avanzar con un análisis post-hoc para identificar exactamente qué pares de métodos difieren entre sí.
+```{r}
+summary(modelo)
+```
+
+
+## 4. Comparaciones Post-hoc
+
+### Prueba de Tukey
+
+Dado que el resultado del ANOVA fue significativo, se realiza la prueba de comparaciones múltiples de Tukey (HSD) para identificar entre qué pares de métodos existen diferencias estadísticamente significativas. Los resultados muestran que el método colaborativo supera al tecnológico por un promedio de 4 puntos, con una diferencia estadísticamente significativa (p = 0.0057). A su vez, el colaborativo se distancia todavía más del tradicional, con una ventaja de 11 puntos, y un p-valor prácticamente cero, lo que refuerza la solidez del resultado. Finalmente, también se observa que el método tecnológico supera al tradicional por 7 puntos, con una diferencia significativa desde el punto de vista estadístico (p < 0.0001). En todos los casos, los intervalos de confianza excluyen el cero, lo que respalda la significancia estadística de las diferencias observadas. En resumen, los resultados son claros: el método colaborativo logra los mejores resultados, seguido por el tecnológico, y bastante más atrás queda el tradicional.
+
+```{r}
+TukeyHSD(modelo)
+```
+
+
+### Significancia Estadística vs Importancia Práctica
+
+Aunque el método colaborativo muestra una diferencia promedio significativa respecto a los otros dos, no alcanza con quedarnos solo con la significancia estadística. Una mejora de 2 puntos puede ser estadísticamente detectable en un experimento bien controlado, pero eso no implica que sea relevante desde el punto de vista educativo. Para que una diferencia tenga peso práctico, debería también reflejarse en mejoras sostenidas en la comprensión, la autonomía del estudiante o la capacidad de aplicar lo aprendido en contextos nuevos.
+
+En este caso, la ventaja de 11 puntos que obtiene el método colaborativo sobre el tradicional parece suficientemente amplia como para ser considerada importante también en términos prácticos. Sin embargo, si la diferencia fuera más acotada, por ejemplo de apenas un par de puntos, habría que evaluar cuidadosamente si justifica un cambio metodológico en escenarios reales de enseñanza.
+
+Además, convendría tener en cuenta otros factores antes de recomendar una implementación generalizada. Por ejemplo, habría que medir también otras dimensiones del aprendizaje, como la motivación, la retención a largo plazo o incluso la satisfacción de los docentes. Y por supuesto, evaluar el costo y la viabilidad de aplicar ese método en contextos escolares diversos: ¿requiere más tiempo de preparación? ¿implica formación adicional para los docentes? ¿es sostenible en grupos numerosos? Una decisión pedagógica no debería depender únicamente del puntaje en una prueba, por más significativo que sea.
+
+
+## 5. Análisis Crítico
+
+### Limitaciones del estudio
+
+Si bien el diseño experimental está cuidadosamente planteado, presenta limitaciones que afectan la validez externa y la posibilidad de generalización de los resultados. En primer lugar, el tamaño de muestra es reducido. Desde el punto de vista estadístico, esto condiciona a una alta sensibilidad a outliers, disminuye la potencia estadística del experimento y aumenta la varianza de los estimadores. 
+
+En segundo lugar, no se especifica si la asignación aleatoria fue estratificada o balanceada en variables pretratamiento como nivel previo en matemáticas, género, edad o nivel socioeconómico. La ausencia de estratificación o control de covariables relevantes puede generar desbalance ex post, lo que afectaría la validez interna y la precisión del efecto causal estimado.
+
+En tercer lugar, se desconoce la procedencia de los estudiantes. Si todos provienen de un mismo entorno educativo, institución o contexto socioeconómico, los resultados no pueden extrapolarse a poblaciones más amplias. La validez externa en este caso queda restringida a ese grupo particular.
+
+Finalmente, la evaluación se basa en una única prueba estandarizada administrada cuatro semanas después del inicio del tratamiento. Esto limita la capacidad del estudio para captar efectos persistentes, spillovers o externalidades del proceso educativo. Idealmente, se requerirían mediciones adicionales a mediano o largo plazo para evaluar si el impacto observado se sostiene en el tiempo y si afecta otras dimensiones del aprendizaje más allá del rendimiento inmediato.
+
+### Manejo de outliers
+
+Si uno de los grupos hubiese presentado un valor atípico extremo, como un puntaje de 45, existen al menos dos estrategias posibles para abordarlo, cada una con distintas implicancias sobre la validez del análisis. Una opción es conservar la observación y aplicar técnicas que reduzcan la influencia de valores extremos. Por ejemplo, se puede utilizar un análisis no paramétrico en lugar de ANOVA, o estimadores robustos como la mediana en lugar de la media. Esta estrategia tiene la ventaja de no alterar el diseño original ni introducir sesgos por manipulación del dataset, respetando la asignación aleatoria y reflejando la variabilidad natural del fenómeno estudiado. Sin embargo, puede reducir la potencia estadística si el outlier introduce mucha dispersión.
+
+Otra posibilidad es eliminar la observación si existe una razón clara para considerarla no representativa (por ejemplo, un error de carga, un caso fuera del marco muestral o una violación evidente del protocolo experimental). Esta decisión debe documentarse con criterios objetivos ex ante o bien ser acompañada por un análisis de sensibilidad que muestre cómo cambian los resultados con y sin el dato atípico. El riesgo de esta estrategia es introducir sesgo si se elimina la observación simplemente porque afecta la significancia del resultado, lo cual violaría principios básicos del diseño experimental.
+
+### Observaciones personales
+
+Hay varios detalles que llaman la atención. Lo primero que salta a la vista es la simetría quirúrgica de los datos: todos los grupos tienen exactamente seis observaciones, distribuciones limpias, sin outliers, sin asimetrías (las medias y medianas son idénticas en los tres métodos), y para coronar el asunto, las desviaciones estándar también son idénticas. Por otra parte, es curioso que los tres tests de Shapiro-Wilk para normalidad, aplicados a tres grupos distintos, devuelvan exactamente el mismo estadístico y p-valor.
+
+En resumen, los datos probablemente fueron simulados o construidos con fines didácticos. Esto conviene tenerlo presente a la hora de interpretar los resultados, ya que en un estudio real raramente se encuentran datos tan balanceados y sin imperfecciones.

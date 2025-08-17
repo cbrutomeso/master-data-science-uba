@@ -1,0 +1,404 @@
+---
+title: "Trabajo Práctico 4: Análisis de Correspondencias Simple y Múltiple"
+author: "Carlos Brutomeso"
+date: "24/05/2025"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+    toc_float: yes
+    df_print: paged
+    theme: united
+    code_download: true
+---
+
+Para este trabajo práctico se trabajará sobre la base de datos de [Predicción de riesgos de Obesidad de Kaggle](https://www.kaggle.com/code/ugurcan95/obesity-risk-prediction/input?select=train.csv). A partir de dicha base se extrajo una muestra aleatoria utilizando como semilla los últimos tres dígitos del DNI. Si bien el enunciado original proponía una muestra de 500 individuos, se amplió el tamaño a 1000 casos con el fin de garantizar el cumplimiento de los supuestos del test de independencia.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+
+# Instalación (si aún no están instalados)
+#install.packages("tidyverse", repos = "https://cloud.r-project.org")
+#install.packages("FactoMineR", repos = "https://cloud.r-project.org")
+#install.packages("factoextra", repos = "https://cloud.r-project.org")
+#install.packages("anacor", repos = "https://cloud.r-project.org")
+#install.packages("gplots", repos = "https://cloud.r-project.org")
+#install.packages("glue", repos = "https://cloud.r-project.org")
+
+# Carga de librerías
+library(tidyverse)
+library(FactoMineR)
+library(factoextra)
+library(anacor)
+library(gplots)
+library(glue)
+
+set.seed(375) #cambiar por los 3 digitos del DNI.
+
+wd <- "obesidad.csv"
+
+sample <- read.csv("obesidad.csv")
+
+sample <- sample %>% 
+  sample_n(1000)# muestreo aletorio de 500 individuos
+
+glimpse(sample)
+
+```
+
+## Análisis de Correspondencias Simple
+
+### Test de Independencia
+
+Se seleccionaron las variables categóricas `MTRANS` (medio de transporte habitual) y `NObeyesdad` (nivel de obesidad) para evaluar si existe dependencia entre ambas. La prueba de independencia de Chi-cuadrado permite contrastar si la distribución conjunta observada difiere significativamente de la esperada bajo el supuesto de independencia entre las variables.
+
+Para que la prueba sea válida, deben cumplirse los siguientes supuestos:
+
+- Tamaño muestral adecuado (n = 1000 > 50).
+- Observaciones independientes por diseño.
+- Frecuencias esperadas mayores a 5 en al menos el 80% de las celdas, y ninguna menor a 1 (criterio de Cochran, 1954).
+
+Con el fin de asegurar el cumplimiento de estos supuestos y evitar una tabla de contingencia de baja información (por ejemplo, 2x2), se agruparon las categorías originales de las variables:
+
+- `MTRANS` fue reagrupada en tres niveles: `Public_Transportation`, `Automobile` y `Active` (incluye `Bike` y `Walking`).
+- `NObeyesdad` fue consolidada en cuatro niveles: `Bajo peso`, `Normal`, `Sobrepeso` y `Obesidad`.
+
+
+```{r }
+# Agrupar transporte: se agrupan Bike y Walking como "Active"
+sample <- sample %>%
+  mutate(MTRANS_grp = case_when(
+    MTRANS %in% c("Bike", "Walking") ~ "Active",
+    TRUE ~ MTRANS  # mantiene Public_Transportation y Automobile
+  ))
+
+# Agrupar nivel de peso en 4 categorías: Bajo peso, Normal, Sobrepeso, Obesidad
+sample <- sample %>%
+  mutate(NObesity_grp = case_when(
+    NObeyesdad == "Insufficient_Weight" ~ "Bajo peso",
+    NObeyesdad == "Normal_Weight" ~ "Normal",
+    NObeyesdad %in% c("Overweight_Level_I", "Overweight_Level_II") ~ "Sobrepeso",
+    NObeyesdad %in% c("Obesity_Type_I", "Obesity_Type_II", "Obesity_Type_III") ~ "Obesidad"
+  ))
+```
+
+Con las variables agrupadas, se plantea el siguiente contraste de hipótesis:
+
+- **H₀**: Las variables `MTRANS_grp` y `NObesity_grp` son independientes.
+- **H₁**: Las variables `MTRANS_grp` y `NObesity_grp` no son independientes.
+
+Se construyó la tabla de contingencia y se aplicó la prueba de Chi-cuadrado:
+
+
+```{r }
+# Tabla de contingencia
+tabla_ca <- table(sample$MTRANS_grp, sample$NObesity_grp)
+
+# Test chi-cuadrado
+test_chi <- chisq.test(tabla_ca)
+
+# Resultado
+cat(glue("X² = {round(test_chi$statistic, 2)}, gl = {test_chi$parameter}, p-valor = {test_chi$p.value}"))
+```
+
+Se obtuvo un p-valor < 0.0001, lo que permite rechazar la hipótesis nula de independencia al nivel de significancia habitual ($\alpha$ = 0.05). Adicionalmente, se verificó que el 83.3% de las celdas presentan frecuencias esperadas superiores a 5, cumpliendo con el criterio de Cochran.
+
+```{r }
+# Verificar supuesto
+mean(test_chi$expected > 5)
+```
+
+En conclusión, existe una asociación estadísticamente significativa entre el medio de transporte habitual y el nivel de obesidad. Este resultado motiva un análisis exploratorio más profundo mediante técnicas como el análisis de correspondencias simple.
+
+
+### Perfiles fila
+El gráfico de perfiles fila muestra la distribución relativa de los niveles de obesidad dentro de cada grupo de transporte (`Active`, `Automobile`, `Public_Transportation`). La línea negra punteada representa el perfil fila medio, es decir, la distribución marginal de la variable `NObesity_grp`.
+
+Se observa que quienes utilizan transporte activo (`Active`) presentan una mayor proporción relativa de individuos con `Peso normal` y `Bajo peso`, y una marcada subrepresentación en la categoría `Obesidad`. Este perfil contrasta con el de los usuarios de `Automobile` y especialmente `Public_Transportation`, quienes exhiben proporciones superiores al promedio en el nivel `Obesidad`.
+
+Asimismo, los perfiles de `Automobile` y `Public_Transportation` se desvían del promedio en direcciones opuestas en los extremos: el grupo `Automobile` está subrepresentado en `Bajo peso`, mientras que el grupo `Public_Transportation` lo está en `Sobrepeso`.
+
+Estas desviaciones respecto del perfil medio indican que los patrones de distribución de obesidad varían sistemáticamente según el medio de transporte utilizado. Esta observación refuerza la evidencia de una **asociación no aleatoria** entre ambas variables, en línea con los resultados obtenidos en el test de independencia.
+
+```{r}
+# Calcular proporciones por fila
+perfil_fila <- prop.table(tabla_ca, margin = 1)
+
+# Convertir a tibble y reestructurar para graficar
+df_fila <- as.data.frame(perfil_fila) %>%
+  rename(Fila = Var1, Columna = Var2, Proporcion = Freq)
+
+# Calcular perfil fila promedio
+perfil_fila_medio <- colMeans(perfil_fila)
+perfil_fila_medio_df <- data.frame(
+  Fila = "Promedio filas",
+  Columna = names(perfil_fila_medio),
+  Proporcion = as.numeric(perfil_fila_medio)
+)
+
+# Unir ambos data frames
+df_plot <- bind_rows(df_fila, perfil_fila_medio_df)
+
+# Graficar
+ggplot(df_plot, aes(x = Columna, y = Proporcion, group = Fila)) +
+  geom_line(data = subset(df_plot, Fila != "Promedio filas"),
+            aes(color = Fila), linewidth = 0.5) +
+  geom_line(data = subset(df_plot, Fila == "Promedio filas"),
+            color = "black", linetype = "dashed", linewidth = 1) +
+  labs(title = "Perfiles fila con perfil medio punteado",
+       x = "", y = "Frecuencia relativa", color = "Fila") +
+  theme_minimal()
+
+```
+
+### Perfiles columna
+El gráfico de perfiles columna muestra la distribución relativa del uso de medios de transporte dentro de cada categoría de obesidad (`Bajo peso`, `Normal`, `Sobrepeso`, `Obesidad`). La línea negra punteada representa el perfil medio de columna, es decir, la distribución marginal de la variable `MTRANS_grp`.
+
+Al comparar los perfiles específicos con el promedio, se observan patrones claramente diferenciados según el estado nutricional. En la categoría `Obesidad`, tanto `Automobile` como `Public_Transportation` presentan proporciones superiores al promedio, lo que indica una mayor prevalencia de estos medios de transporte entre personas con obesidad. Por el contrario, el transporte `Active` está fuertemente subrepresentado en esta categoría.
+
+Este patrón se invierte en `Bajo peso`, donde `Active` supera ampliamente la media, mientras que `Automobile` y `Public_Transportation` tienen proporciones muy por debajo del perfil medio. En la categoría `Normal`, también se observa una sobrerepresentación del grupo `Active`, lo que refuerza la hipótesis de una relación positiva entre actividad física y peso saludable.
+
+Estas desviaciones respecto al perfil medio indican que el uso de medios de transporte **no se distribuye aleatoriamente** entre los niveles de obesidad, lo cual complementa y refuerza los hallazgos del test de independencia y el análisis de perfiles fila.
+
+```{r}
+# Calcular proporciones por columna
+perfil_columna <- prop.table(tabla_ca, margin = 2)
+
+# Convertir tabla a data frame largo para graficar
+df_col <- as.data.frame(perfil_columna) %>%
+  rename(Fila = Var1, Columna = Var2, Proporcion = Freq)
+
+# Calcular perfil columna medio (promedio de cada fila)
+perfil_columna_medio <- rowMeans(perfil_columna)
+perfil_columna_medio_df <- data.frame(
+  Columna = "Promedio columnas",
+  Fila = names(perfil_columna_medio),
+  Proporcion = as.numeric(perfil_columna_medio)
+)
+
+# Unir dataframes
+df_plot_col <- bind_rows(df_col, perfil_columna_medio_df)
+
+# Graficar
+ggplot(df_plot_col, aes(x = Fila, y = Proporcion, group = Columna)) +
+  geom_line(data = subset(df_plot_col, Columna != "Promedio columnas"),
+            aes(color = Columna), linewidth = 0.5) +
+  geom_line(data = subset(df_plot_col, Columna == "Promedio columnas"),
+            color = "black", linetype = "dashed", linewidth = 1) +
+  labs(title = "Perfiles columna con perfil medio punteado",
+       x = "", y = "Frecuencia relativa", color = "Columna") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+### Distancias chi² al centro
+
+El gráfico presenta las distancias chi-cuadrado de cada perfil de fila y de columna respecto al perfil medio. Estas distancias reflejan qué tan diferentes son las distribuciones observadas respecto a la esperada bajo independencia, y permiten identificar **qué categorías contribuyen más a la inercia total** del análisis.
+
+En el panel izquierdo (columnas, correspondientes a `NObesity_grp`), se observa que la categoría `Sobrepeso` es la más alejada del perfil medio, seguida por `Normal` y `Bajo peso`. Por el contrario, `Obesidad` presenta una distancia mucho menor, lo que indica que su distribución de medios de transporte se asemeja más al patrón global.
+
+En el panel derecho (filas, correspondientes a `MTRANS_grp`), se destaca `Active` como la categoría con mayor distancia al centro, lo que implica una distribución notablemente distinta al perfil medio y, por lo tanto, una elevada contribución a la inercia total. En cambio, `Automobile` y especialmente `Public_Transportation` presentan distancias considerablemente menores, lo que sugiere perfiles más próximos al promedio.
+
+Estos resultados refuerzan la idea de que ciertos medios de transporte (como `Active`) están asociados con patrones particulares de obesidad, mientras que otros (como `Public_Transportation`) presentan distribuciones más similares al comportamiento global de la muestra.
+
+```{r}
+# Preparo data para futuro Análisis de Correspondencias
+ca_result <- CA(tabla_ca, graph = FALSE)
+
+# Calcular distancia chi² de cada fila y columna al perfil medio (coordenadas al cuadrado sumadas)
+dist_filas <- rowSums(ca_result$row$coord^2)
+dist_columnas <- rowSums(ca_result$col$coord^2)
+
+# Armar data frame
+df_dist <- bind_rows(
+  data.frame(Categoria = names(dist_filas), Distancia_Chi2 = dist_filas, Tipo = "Fila"),
+  data.frame(Categoria = names(dist_columnas), Distancia_Chi2 = dist_columnas, Tipo = "Columna")
+)
+
+# Graficar
+ggplot(df_dist, aes(x = reorder(Categoria, Distancia_Chi2), y = Distancia_Chi2, fill = Tipo)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Tipo, scales = "free") +
+  coord_flip() +
+  labs(title = "Distancias chi² al perfil medio",
+       x = "", y = "Distancia chi²") +
+  theme_minimal()
+```
+
+### Análisis de Correspondencias Simple y Biplot
+
+Se aplicó un Análisis de Correspondencias Simple (CA) sobre la tabla de contingencia formada por las variables `MTRANS_grp` (medio de transporte habitual) y `NObesity_grp` (nivel de obesidad). Esta técnica permite representar gráficamente las asociaciones entre categorías y descomponer la variabilidad de la tabla en dimensiones principales o *factores latentes*.
+
+El biplot resultante muestra una representación en dos dimensiones que explican el **100% de la inercia total** (66.5% la primera y 33.5% la segunda), lo que asegura una fidelidad completa en la proyección. En este gráfico, la proximidad entre puntos indica que la frecuencia conjunta observada para dos categorías es mayor a la esperada bajo independencia.
+
+La categoría `Active` se ubica en el extremo superior derecho, alejada del origen, lo que indica un patrón diferenciado. Sin embargo, no se asocia positivamente con `Normal` ni `Bajo peso`. En cambio, `Public_Transportation` se sitúa en la misma dirección que `Normal` y `Bajo peso`, lo que sugiere una asociación entre el uso del transporte público y niveles de peso normales o bajos.
+
+Por otro lado, `Automobile` y `Sobrepeso` se sitúan próximos en el plano y comparten cuadrante, lo cual indica una posible asociación entre el uso del automóvil y el exceso de peso. Esta relación es coherente con estudios previos que vinculan el transporte pasivo con mayores niveles de sedentarismo.
+
+En cuanto a `Public_Transportation`, su posición cercana al origen y relativamente próxima a `Obesidad` podría sugerir una asociación débil con esa categoría, aunque su cercanía al centro implica que su contribución a la inercia total es baja y, por ende, su interpretación debe ser tomada con cautela.
+
+En conjunto, la distribución espacial de las categorías en el biplot aporta **evidencia gráfica de la dependencia entre las variables**. Las asociaciones detectadas (como `Active` con `Normal/Bajo peso`, y `Automobile` con `Sobrepeso`) refuerzan la existencia de una estructura no aleatoria entre el medio de transporte habitual y el estado nutricional de los individuos.
+
+```{r}
+# Biplot
+fviz_ca_biplot(ca_result, repel = TRUE) +
+  ggtitle("Biplot - MTRANS vs NObesity") +
+  theme_minimal()
+
+# Inercia explicada por dimensión
+get_eigenvalue(ca_result)
+
+``` 
+
+
+## Análisis de Correspondencias Múltiple
+
+### Matriz de Burt e Inercia Explicada
+El **Análisis de Correspondencias Múltiple (MCA)** es una extensión del Análisis de Correspondencias Simple para el caso de más de dos variables categóricas. Su objetivo es identificar y representar gráficamente las asociaciones complejas entre múltiples dimensiones cualitativas, reduciendo la dimensionalidad del problema mediante la extracción de ejes latentes que capturan la mayor variabilidad posible.
+
+Este procedimiento parte de la construcción de la **matriz de Burt**, una matriz simétrica que contiene todas las posibles tablas de contingencia cruzadas entre pares de variables, así como las distribuciones marginales de cada categoría. A partir de esta matriz, el MCA permite generar un espacio factorial donde las relaciones entre las categorías se visualizan de manera compacta y estructurada.
+
+Para este análisis se seleccionaron cinco variables: `Gender` (género), `CAEC` (frecuencia de comer entre comidas), `CALC` (consumo de alcohol), `SMOKE` (tabaquismo) y una versión discretizada de `Age`, agrupada en cinco rangos etarios. Esta selección busca capturar tanto características demográficas como conductuales de los individuos.
+
+A continuación se muestra la **visualización de la matriz de Burt** mediante un gráfico tipo *balloonplot*. En él, cada punto representa la frecuencia conjunta entre dos categorías, y su tamaño es proporcional a dicha frecuencia. Como es esperable, la matriz exhibe una fuerte simetría y alta densidad sobre la diagonal principal (frecuencias de cada categoría consigo misma). Además, se destacan bloques diferenciados en las combinaciones de `CALC`, `CAEC` y `Age_group`, lo que anticipa su importancia en la estructuración del espacio factorial que será analizado en lo siguiente.
+
+```{r}
+# Discretizar edad en grupos
+sample <- sample %>%
+  mutate(Age_group = cut(Age, breaks = c(0, 18, 30, 45, 60, Inf),
+                         labels = c("≤18", "19–30", "31–45", "46–60", "60+")))
+
+# Selección de variables categóricas para MCA
+mca_vars <- sample %>%
+  select(Gender, CAEC, CALC, SMOKE, Age_group)
+
+# Convertir todas las variables a factores
+mca_data <- mca_vars %>%
+  mutate(across(everything(), as.factor))
+
+# Armo matriz de Burt
+burt <- burtTable(mca_data)
+
+#Grafico matriz de Burt
+burt2 <- as.table(as.matrix(burt))
+gplots::balloonplot((burt2), main='Matriz de Burt', label=F, show.margins = F,dotcolor="green", text.size=0.45,colsrt=45,colmar=2.5)
+```
+
+
+Las dos primeras dimensiones del análisis explican conjuntamente un **25,91%** de la inercia total del sistema (13,58% en la Dimensión 1 y 12,33% en la Dimensión 2). Si bien estos porcentajes pueden parecer bajos en comparación con técnicas como el Análisis de Componentes Principales (PCA), son adecuados en el contexto del MCA, donde la información se distribuye entre múltiples categorías. En este caso, los primeros dos ejes permiten una **representación informativa y estable** de las asociaciones principales entre categorías.
+
+El resumen del modelo revela que las variables que más contribuyen a estructurar el espacio factorial son: `CALC` (consumo de alcohol), con una **contribución del 47,5%** a la Dim. 1 y **18,3%** a la Dim. 2, `Age_group`, con **40,5%** y **43,6%** respectivamente, y `CAEC` (frecuencia de comer entre comidas), con **23,5%** y **37,2%**.
+
+Estas variables presentan los mayores valores de **contribución (`ctr`)**, **calidad de representación (`cos²`)**, y **correlación con las dimensiones ($\eta^2$)**, especialmente en las tres primeras dimensiones. Por el contrario, `SMOKE` (tabaquismo) muestra una **baja capacidad discriminante**, y `Gender` exhibe un patrón relativamente **simétrico** entre sus categorías, con menor peso en la estructuración del espacio.
+
+En conjunto, el análisis sugiere que los factores relacionados con el **consumo de alcohol** y la **edad** explican en mayor medida la estructura latente del sistema, mientras que el **género** y el **tabaquismo** presentan un comportamiento más homogéneo en la población analizada.
+
+
+
+
+```{r}
+# MCA con FactoMineR
+mca_result <- MCA(mca_data, graph = FALSE)
+summary(mca_result)
+
+# Inercia explicada
+get_eigenvalue(mca_result)
+```
+
+### Visualización e Interpretación del Espacio Factorial
+
+El biplot resultante del Análisis de Correspondencias Múltiple permite visualizar la disposición relativa de las categorías seleccionadas, proyectadas sobre los dos primeros ejes factoriales. Cada punto representa una categoría, y su posición refleja su contribución a la estructura latente del espacio multidimensional.
+
+En el cuadrante superior derecho se destacan las categorías `CALC_Frequently` y `CAEC_Always`, que se agrupan junto con `≤18`. Esta proximidad sugiere que, en la muestra, **los individuos más jóvenes tienden a reportar conductas de alto consumo de alcohol y frecuentes ingestas entre comidas**. La categoría `CAEC_Frequently` también aparece próxima, lo que refuerza esta asociación.
+
+Por el contrario, en el cuadrante inferior derecho se observa `SMOKE_yes` junto a `46–60`, lo cual podría indicar una **relación entre el tabaquismo y las edades más avanzadas del grupo**. En el centro del gráfico se agrupan categorías como `Male`, `Female`, `SMOKE_no`, `CALC_Sometimes` y `CAEC_Sometimes`, lo que sugiere que estos **perfiles son más comunes y menos diferenciados respecto del patrón promedio**, con baja contribución a la separación factorial.
+
+La variable `Age_group` se muestra como altamente estructurante: `≤18`, `31–45` y `46–60` aparecen bien separadas, lo que indica **diferencias sustantivas en los comportamientos según la edad**. Del mismo modo, la polaridad entre `CALC_Frequently` y `CALC_Sometimes`, así como entre `CAEC_Always` y `CAEC_no`, muestra que las conductas de consumo ayudan a discriminar perfiles en el espacio reducido.
+
+En suma, el biplot visualiza claramente **dos polos conductuales**: uno asociado a jóvenes con prácticas alimentarias intensas entre comidas principales y consumo de alcohol, y otro vinculado a personas mayores y el tabaquismo. Las variables `Gender` y `SMOKE_no` se presentan como neutras o promedio respecto al conjunto de asociaciones.
+
+El **gráfico de representatividad** complementa el biplot al mostrar qué tan bien están proyectadas las categorías sobre el plano formado por las dos primeras dimensiones. Se observa que `CALC_Frequently`, `CAEC_Always` y `CAEC_Frequently` son las categorías mejor representadas (cos² altos), lo que respalda su fuerte contribución a la estructura factorial identificada en el biplot. También `≤18` presenta buena representación, reforzando su asociación con patrones intensos de consumo. Por el contrario, categorías como `CAEC_no`, `SMOKE_yes` y `46–60`, aunque se sitúan en posiciones extremas, tienen baja calidad de representación en el plano 1–2, por lo que su interpretación debe hacerse con cautela.
+
+Por otra parte, los **gráficos de contribución por dimensión** permiten identificar qué categorías son las principales responsables de la formación de los ejes factoriales. Para la Dimensión 1, se destacan `≤18` y `CALC_no`, seguidas de `CALC_Sometimes` y `CAEC_Frequently`, lo que confirma que las diferencias en el consumo de alcohol y la edad son las variables más estructurantes del primer eje. En la Dimensión 2, las mayores contribuciones provienen de `31–45`, `CAEC_Always`, y `CALC_Frequently`, evidenciando que esta dimensión separa particularmente a personas de mediana edad con comportamientos alimentarios y de consumo más frecuentes. En suma, estas visualizaciones cuantitativas complementan el biplot y refuerzan que las variables `Age_group`, `CALC` y `CAEC` son claves para entender la organización del espacio factorial.
+
+```{r}
+# Biplot de individuos y categorías
+fviz_mca_biplot(mca_result,
+                label = "var",  
+                col.ind='gray',
+                repel = TRUE,         
+                ggtheme = theme_minimal(),
+                title = "Biplot del Análisis de Correspondencias Múltiple")
+
+# Análisis de variables según representatividad
+fviz_mca_var(mca_result,
+             invisible="ind", 
+             repel = TRUE,
+             alpha.var="cos2",
+             title = "Análisis de variables según representatividad")
+
+# Análisis de variables según contribución a dimensión 1 
+fviz_contrib(mca_result, 
+             choice = "var", 
+             axes = 1)
+
+# Análisis de variables según contribución a dimensión 2
+fviz_contrib(mca_result, 
+             choice = "var", 
+             axes = 2)
+```
+
+### Segmentación de individuos mediante HCPC
+Como complemento al Análisis de Correspondencias Múltiple, se aplicó un **análisis jerárquico sobre el espacio factorial (HCPC)** con el objetivo de **identificar perfiles homogéneos de individuos** según sus características cualitativas. Esta técnica agrupa a los individuos en función de su proximidad en el espacio generado por las dimensiones del MCA.
+
+A continuación, se presentan dos visualizaciones clave:
+
+- Un **dendrograma coloreado** que representa la estructura jerárquica de los grupos, facilitando la comprensión de cómo se forman y relacionan los distintos clústeres.  
+- Un **mapa factorial** que muestra la distribución de los individuos proyectados sobre las dos primeras dimensiones del MCA, con los clústeres claramente diferenciados.
+
+El dendrograma sugiere una solución de **5 clústeres**, detectada automáticamente en función de las ganancias de inercia. Esta segmentación revela **perfiles latentes** dentro de la muestra, útiles para análisis posteriores o decisiones de política basadas en datos.
+
+Al comparar los grupos formados en el **mapa de clústeres** con la disposición de las categorías en el **biplot del MCA**, se pueden proponer las siguientes interpretaciones:
+
+- **Clúster 5 (naranja)**: ubicado en el cuadrante superior derecho del mapa de clústeres, coincide con la región donde se encuentran `CALC_Frequently`, `CAEC_Always` y `≤18`. Esto sugiere un perfil compuesto principalmente por **jóvenes con conductas intensas de consumo de alcohol y alimentación entre comidas**. Podría representar un **grupo de mayor riesgo conductual**.
+
+- **Clúster 1 (rojo)**: se ubica hacia el cuadrante inferior izquierdo, en la zona del biplot donde aparecen `CALC_Sometimes`, `CAEC_Sometimes`, `SMOKE_no` y valores medios de edad como `19–30`. Esto indica un **perfil moderado**, con **hábitos de consumo ocasional** y sin tabaquismo, probablemente personas jóvenes-adultas.
+
+- **Clúster 3 (verde)**: situado en el cuadrante inferior central, se aproxima a las categorías `31–45`, `CALC_no` y `CAEC_Sometimes`, lo que sugiere un grupo de **adultos con patrones de consumo más conservadores o neutros**.
+
+- **Clúster 4 (violeta)**: aparece más hacia el centro del espacio factorial, sin una asociación fuerte con categorías extremas, lo cual puede interpretarse como un grupo **promedio o heterogéneo**, sin rasgos destacadamente distintivos.
+
+- **Clúster 2 (azul)**: se superpone parcialmente con zonas donde están `SMOKE_yes` y `46–60`, lo que apunta a un perfil de **personas mayores con hábito de tabaquismo** y consumo de alcohol moderado a bajo.
+
+Estas asociaciones fortalecen las conclusiones previas del análisis del MCA, y la segmentación permite **abordar la población con estrategias diferenciadas** según el perfil conductual de cada clúster.
+
+
+```{r hcpc-clustering, echo=TRUE, fig.align='center', fig.width=8, fig.height=6}
+# Análisis jerárquico sobre el espacio MCA
+hcpc_result <- HCPC(mca_result, nb.clust = -1, graph = FALSE)
+
+# Dendrograma
+fviz_dend(hcpc_result, 
+          cex = 0.6,
+          palette = "jco",
+          rect = TRUE,
+          rect_fill = TRUE,
+          show_labels = FALSE,
+          main = "Dendrograma jerárquico sobre espacio MCA") +
+  coord_cartesian(ylim = c(0, NA))  # Esto elimina el área gris
+
+# Mapa plano de clústeres
+fviz_cluster(hcpc_result,
+             geom = "point",
+             palette = "Set1",           # Paleta con buen contraste
+             ggtheme = theme_minimal(),
+             show.clust.cent = TRUE,     # Mostrar centroides
+             ellipse.type = "norm",      # Contorno elíptico de clúster
+             repel = TRUE,
+             labelsize = 4,
+             main = "Mapa de clústeres (MCA + HCPC)")
+
+```

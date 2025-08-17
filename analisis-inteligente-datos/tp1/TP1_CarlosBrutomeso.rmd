@@ -1,0 +1,580 @@
+---
+title: "Trabajo Práctico 1: Análisis Inteligente de Datos"
+author: "Carlos Brutomeso"
+date: "02/04/2025"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+    toc_float: yes
+    df_print: paged
+    theme: united
+    code_download: true
+---
+## Carga del Dataset en R
+  
+```{r configuracion_gral}
+# Instalar y cargar el paquete readr 
+#install.packages ("readr") # Para leer archivos CSV
+if (!require(readr)) install.packages("readr")
+library(readr)
+
+# Instalar y cargar el paquete dplyr 
+if (!require(dplyr)) install.packages("dplyr")
+library(dplyr)
+
+# Definir la ruta del archivo
+file_path <- "dirty_cafe_sales.csv"
+
+# Cargar el dataset
+cafe_sales_df <- read_csv(file_path)
+
+# Mostrar las primeras filas del dataset
+head(cafe_sales_df)
+
+```
+
+## Análisis Exploratorio Inicial
+
+<b>Realice el análisis de las columnas `Item`, `Quantity`, `Payment Method` y `Location` considerando lo siguiente:
+
+a) Visualizar los valores presentes en cada columna, identificando la existencia de valores nulos y cadenas que indiquen errores (por ejemplo, `ERROR` o `UNKNOWN`).</b>
+
+A continuación se muestran los valores únicos presentes en las columnas `Item`, `Quantity`, `Payment Method` y `Location`, incluyendo la detección de valores nulos (`NA`) y cadenas que pueden indicar errores como `"ERROR"` o `"UNKNOWN"`.
+
+```{r 3_a}
+## Visualizar valores únicos para cada columna
+
+# Item
+print(list("----- Valores únicos en la columna 'Item' -----", table(cafe_sales_df$Item, useNA = "ifany")))
+
+# Quantity
+print(list("----- Valores únicos en la columna 'Quantity' -----", table(cafe_sales_df$Quantity, useNA = "ifany")))
+
+# Payment Method
+print(list("----- Valores únicos en la columna 'Payment Method' -----", table(cafe_sales_df$`Payment Method`, useNA = "ifany")))
+
+# Location
+print(list("----- Valores únicos en la columna 'Location' -----", table(cafe_sales_df$Location, useNA = "ifany")))
+```
+
+
+<b>b) Determinar los valores más frecuentes mediante representaciones gráficas (por ejemplo, diagramas de barras, diagramas circulares, etc.).</b>
+
+Para representar los valores más frecuentes de las variables seleccionadas, se elige el tipo de gráfico más adecuado buscando maximizar la claridad visual y facilitar la interpretación del lector. Por lo tanto, se eligió el diagrama de barras ya que comparando contra diagramas circulares **estos últimos no permitían distinguir fácilmente los valores más frecuentes en cada columna** (se podría haber agregado como label el porcentaje pero visualmente no quedaba bien). 
+
+Además, los gráficos muestran las frecuencias de cada categoría incluyendo los valores faltantes (`NA`) y las cadenas que pueden indicar errores como `"ERROR"` o `"UNKNOWN"` como categorías adicionales. Cabe destacar que todas **las categorías fueron ordenadas de mayor a menor frecuencia** para facilitar la comparación visual.
+
+
+```{r 3_b}
+# Layout para 4 gráficos
+par(mfrow = c(2, 2), mar = c(5, 4, 4, 2))
+
+# Item
+item_freq <- table(cafe_sales_df$Item, useNA = "ifany")
+names(item_freq)[is.na(names(item_freq))] <- "NA"
+item_freq <- sort(item_freq, decreasing = TRUE)
+colors_item <- ifelse(names(item_freq) %in% c("NA", "ERROR", "UNKNOWN"), "red", "lightblue")
+barplot(item_freq,
+        main = "Frecuencia de Item",
+        col = colors_item,
+        las = 2, cex.names = 0.8)
+
+# Quantity
+quantity_freq <- table(cafe_sales_df$Quantity, useNA = "ifany")
+names(quantity_freq)[is.na(names(quantity_freq))] <- "NA"
+quantity_freq <- sort(quantity_freq, decreasing = TRUE)
+colors_quantity <- ifelse(names(quantity_freq) %in% c("NA", "ERROR", "UNKNOWN"), "red", "lightgreen")
+barplot(quantity_freq,
+        main = "Frecuencia de Quantity",
+        col = colors_quantity,
+        las = 2, cex.names = 0.8)
+
+# Payment Method
+payment_freq <- table(cafe_sales_df$`Payment Method`, useNA = "ifany")
+names(payment_freq)[is.na(names(payment_freq))] <- "NA"
+payment_freq <- sort(payment_freq, decreasing = TRUE)
+colors_payment <- ifelse(names(payment_freq) %in% c("NA", "ERROR", "UNKNOWN"), "red", "gold")
+barplot(payment_freq,
+        main = "Frecuencia de Payment Method",
+        col = colors_payment,
+        las = 2, cex.names = 0.8)
+
+# Location
+location_freq <- table(cafe_sales_df$Location, useNA = "ifany")
+names(location_freq)[is.na(names(location_freq))] <- "NA"
+location_freq <- sort(location_freq, decreasing = TRUE)
+colors_location <- ifelse(names(location_freq) %in% c("NA", "ERROR", "UNKNOWN"), "red", "orchid")
+barplot(location_freq,
+        main = "Frecuencia por Location",
+        col = colors_location,
+        las = 2, cex.names = 0.8)
+
+# Reset layout para próximos plots
+par(mfrow = c(1, 1))
+```
+
+<b>c) Contabilizar la cantidad de entradas que presentan valores nulos o cadenas `ERROR`/`UNKNOWN` para cada columna.</b>
+
+```{r 3_c}
+# Función auxiliar para analizar columnas indicadas en la consigna
+fn_inc_3c <- function(data, col) {
+  
+  # Columna 
+  cat("----- Columna: ", col, "-----", "\n")
+  
+  # Conteo de valores nulos
+  cat("Cantidad de valores NA:", sum(is.na(data[[col]])), "\n")
+  
+  # Conteo de valores con 'ERROR' o 'UNKNOWN'
+  cat("Cantidad de 'ERROR':", sum(data[[col]] == "ERROR", na.rm = TRUE), "\n")
+  cat("Cantidad de 'UNKNOWN':", sum(data[[col]] == "UNKNOWN", na.rm = TRUE), "\n")
+}
+
+# Aplicar a las columnas indicadas en la consigna
+fn_inc_3c(cafe_sales_df, "Item")
+fn_inc_3c(cafe_sales_df, "Quantity")
+fn_inc_3c(cafe_sales_df, "Payment Method")
+fn_inc_3c(cafe_sales_df, "Location")
+```
+
+A continuación se presentan los hallazgos:
+
+- `Item`: Se encontraron 333 valores nulos, 292 ocurrencias de `ERROR` y 344 ocurrencias de `UNKNOWN`.
+- `Quantity`: Se hallaron 138 valores nulos, 170 `ERROR` y 171 `UNKNOWN`..
+- `Payment Method`: Se observaron 2579 valores nulos, 306 ocurrencias de `ERROR` y 293 de `UNKNOWN`.
+- `Location`: Se detectaron 3265 valores nulos, 358 `ERROR` y 338 `UNKNOWN`.
+
+#### Preguntas adicionales
+1. ¿Cuál es el `Item` (Coffee, Salad, Cake, etc.) más frecuente en la tabla? **Juice**.
+2. ¿Cuál es la `Quantity` (cantidad de items pedidos) menos frecuente? **La cantidad de items pedidos menos frecuente es 1**.
+3. ¿Cuántas personas realizaron el pago con efectivo (cash)? **2258**.
+4. ¿Cuántos registros presentan `UNKNOWN`, `NA` o `ERROR` en la columna `Location`? Determine también la proporción que estos valores representan respecto al total de filas del dataset. **3961 lo equivale al 0.3961 en términos de proporción**.
+5. Eliminando todos los valores no numéricos de la columna `Price Per Unit`, determine el promedio, la mediana y la desviación estándar. **Promedio: 2.949984, Mediana: 3, Desviación estándar: 1.27845**.
+
+```{r preg_adicionales}
+# 1. Item más frecuente
+item_freq <- table(cafe_sales_df$Item, useNA = "ifany")
+item_mas_frecuente <- names(which.max(item_freq))
+cat("1. El Item más frecuente es:", item_mas_frecuente, "\n\n")
+
+# 2. Quantity menos frecuente
+quantity_freq <- table(cafe_sales_df$Quantity, useNA = "ifany")
+quantity_menos_frecuente <- names(which.min(quantity_freq))
+cat("2. La Quantity menos frecuente es:", quantity_menos_frecuente, "\n\n")
+
+quantity_freq <- table(cafe_sales_df$Quantity)
+quantity_filtrada <- cafe_sales_df$Quantity[!(cafe_sales_df$Quantity %in% c("ERROR", "UNKNOWN"))]
+quantity_freq <- table(quantity_filtrada)
+quantity_menos_frecuente <- names(which.min(quantity_freq))
+cat("2. La Quantity menos frecuente (sin contar 'ERROR', 'UNKNOWN' y 'NA') es:", quantity_menos_frecuente, "\n\n")
+
+# 3. Pagos en efectivo (Cash)
+pagos_cash <- sum(cafe_sales_df$`Payment Method` == "Cash", na.rm = TRUE)
+cat("3. Cantidad de personas que pagaron en efectivo (Cash):", pagos_cash, "\n\n")
+
+# 4. Registros con UNKNOWN, NA o ERROR en Location
+location_vals <- cafe_sales_df$Location
+errores_location <- sum(
+  is.na(location_vals) |
+    location_vals == "UNKNOWN" |
+    location_vals == "ERROR"
+)
+total_filas <- nrow(cafe_sales_df)
+proporcion_errores <- errores_location / total_filas
+
+cat("4. Registros con UNKNOWN, NA o ERROR en 'Location':", errores_location, "\n")
+cat("   Proporción sobre el total de filas:", round(proporcion_errores, 4), "\n\n")
+
+# 5. Estadísticas de Price Per Unit (eliminando valores no numéricos)
+ppu_validos <- cafe_sales_df$`Price Per Unit`[!(cafe_sales_df$`Price Per Unit` %in% c("ERROR", "UNKNOWN"))]
+ppu_numerico <- as.numeric(ppu_validos)
+ppu_limpio <- ppu_numerico[!is.na(ppu_numerico)]
+
+media_ppu <- mean(ppu_limpio)
+mediana_ppu <- median(ppu_limpio)
+desv_std_ppu <- sd(ppu_limpio)
+
+cat("5. Estadísticas de 'Price Per Unit' (valores numéricos solamente):\n")
+cat("   Promedio:", media_ppu, "\n")
+cat("   Mediana:", mediana_ppu, "\n")
+cat("   Desviación estándar:", desv_std_ppu, "\n")
+```
+---
+## Análisis de Outliers y Patrones Temporales
+
+<b>a) Determine si existe algún outlier en alguna columna y justifique su respuesta.</b>
+
+Para observar posibles valores atípicos en las **variables numéricas** (`Quantity`, `Price Per Unit` y `Total Spent`) se utilizan diagramas de caja (boxplots) para identificarlos visualmente. Adicionalmente, se complementan con un resumen estadístico para cada columna.
+
+A partir de los diagramas de caja construidos, se observa lo siguiente:
+
+- `Quantity`: **No se identifican outliers**. La distribución es simétrica, y los valores se encuentran entre 1 y 5 unidades, lo cual parece razonable para compras en un café.
+
+- `Price Per Unit`: **Tampoco se observan valores atípicos**. Los precios unitarios se concentran entre  1 y 5.
+
+- `Total Spent`: Si bien **visualmente podría parecer que existen valores extremos** (registros con Total Spent = 25), un análisis más detallado muestra que estos casos **corresponden a combinaciones frecuentes y válidas**, como la **compra de 5 unidades de ensaladas a $5 cada una**. Por lo tanto, **no se considera un outlier** en este contexto.
+
+En resumen, **no se identificaron outliers** en las variables numéricas del dataset original.
+
+Por otra parte, para analizar posibles outliers en las **variables categóricas** (`Item`, `Payment Method` y `Location`) se utilizan los diagramas de barras (barplots) que ya presentamos en el ejercicio 3-b) para identificarlos visualmente. Si bien las variables categóricas no presentan outliers en el sentido numérico, se identifican valores anómalos o inconsistentes con el resto de los datos. Se detectan categorías como `ERROR`, `UNKNOWN` y `NA` que no representan categorías reales y deben considerarse **valores inválidos o atípicos**, por lo que deberán ser tratadas en una eventual limpieza de datos.
+
+Por último, se extrajeron tres componentes a partir de la variable `Transaction Date`: **año**, **mes** y **día del mes**. Luego, se construyeron tablas de frecuencia para cada una de estas partes con el objetivo de identificar patrones temporales y posibles valores atípicos. Se observa que:
+
+- **Año**: Solo se registran transacciones en el año 2023. No se detectan valores fuera de rango (como años pasados o futuros).
+- **Mes**: Las transacciones están bastante uniformemente distribuidas entre los 12 meses del año, con un mínimo en febrero (727) y un pico leve en octubre (838). Esta variación es leve y no indica un comportamiento atípico. 
+- **Día del mes**: Los valores están distribuidos entre los días 1 al 31, con frecuencias generalmente estables. La única excepción es el día 31, que tiene una frecuencia más baja (175 transacciones), lo cual es completamente esperable ya que no todos los meses tienen 31 días.
+
+
+
+
+```{r 4_a}
+## Quantity
+quantity_raw <- cafe_sales_df$Quantity
+quantity_clean <- quantity_raw[!(quantity_raw %in% c("ERROR", "UNKNOWN"))]
+quantity <- as.numeric(quantity_clean)
+quantity <- quantity[!is.na(quantity)]
+
+## Price Per Unit
+ppu_raw <- cafe_sales_df$`Price Per Unit`
+ppu_clean <- ppu_raw[!(ppu_raw %in% c("ERROR", "UNKNOWN"))]
+ppu <- as.numeric(ppu_clean)
+ppu <- ppu[!is.na(ppu)]
+
+## Total Spent
+total_raw <- cafe_sales_df$`Total Spent`
+total_clean <- total_raw[!(total_raw %in% c("ERROR", "UNKNOWN"))]
+total <- as.numeric(total_clean)
+total <- total[!is.na(total)]
+
+## Resúmenes estadísticos
+print(list("Resumen de Quantity:", summary(quantity)))
+print(list("Resumen de Price Per Unit:", summary(ppu)))
+print(list("Resumen de Total Spent:", summary(total)))
+
+
+## Boxplots
+par(mfrow = c(1, 3))
+boxplot(quantity, main = "Quantity", col = "lightblue")
+boxplot(ppu, main = "Price Per Unit", col = "lightgreen")
+boxplot(total, main = "Total Spent", col = "salmon")
+
+## Frecuencias cuando Total Spent = 25
+
+# Frecuencia de Item
+print(list("Frecuencia de Item (Total Spent = 25)", table(cafe_sales_df$Item[cafe_sales_df$`Total Spent` == "25.0"])))
+
+# Frecuencia de Quantity
+print(list("Frecuencia de Quantity (Total Spent = 25)", table(cafe_sales_df$Quantity[cafe_sales_df$`Total Spent` == "25.0"])))
+
+# Frecuencia de Price Per Unit
+print(list("Frecuencia de Price Per Unit (Total Spent = 25)", table(cafe_sales_df$`Price Per Unit`[cafe_sales_df$`Total Spent` == "25.0"])))
+par(mfrow = c(1, 1))
+
+## Transaction Date
+transaction_date <- as.Date(cafe_sales_df$`Transaction Date`)
+
+# Extraer partes de la fecha
+year_vec <- format(transaction_date, "%Y")
+month_vec <- format(transaction_date, "%m")
+day_vec <- format(transaction_date, "%d")
+
+# Tablas de frecuencia
+print(list("Frecuencia por año:",table(year_vec)))
+print(list("Frecuencia por mes:",table(month_vec)))
+print(list("Frecuencia por día del mes:",table(day_vec)))
+```
+
+<b>b) Conociendo que el 1 de enero de 2023 fue domingo, responda:
+
+i. ¿Cuál es el día de la semana con menos transacciones?
+ii. ¿Cuál es el día de la semana con más transacciones?
+iii. ¿Cuántas transacciones se realizaron los viernes de ese año?</b>
+
+A partir del análisis se concluye que:
+
+- El día con **menos transacciones** fue el **martes**
+- El día con **más transacciones** fue el **viernes**
+- Se realizaron un total de **1338** transacciones los días **viernes** de ese año
+
+
+```{r 4_b}
+## Cálculo manual del día de la semana (1/1/2023 fue domingo)
+
+# Vector con nombres de los días desde domingo (porque 01/01/2023 fue domingo)
+dias_ordenados <- c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+
+# Convertir fechas
+transaction_date <- as.Date(cafe_sales_df$`Transaction Date`)
+
+# Calcular el número de días desde el 1 de enero de 2023
+dias_desde_inicio <- as.numeric(transaction_date - as.Date("2023-01-01"))
+
+# Calcular el índice del día de la semana (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+indice_dia <- (dias_desde_inicio %% 7)
+
+# Asignar nombre del día manualmente
+dia_semana_manual <- dias_ordenados[indice_dia + 1]
+
+# Día con menos y más transacciones
+tabla_dias <- table(dia_semana_manual)
+dia_menos <- names(tabla_dias)[which.min(tabla_dias)]
+print(list("El día de la semana con menos transacciones es:" = dia_menos))
+dia_mas <- names(tabla_dias)[which.max(tabla_dias)]
+print(list("El día de la semana con más transacciones es:" = dia_mas))
+
+# Cantidad de transacciones en viernes
+cantidad_viernes <- tabla_dias["Friday"]
+print(list("Los viernes de ese año se realizaron" = paste(cantidad_viernes, "transacciones")))
+```
+
+<b>c) Identifique el mes con más transacciones y el mes con menos.</b>
+
+Se utiliza la columna de fechas para identificar el mes correspondiente a cada transacción. Luego, se cuenta cuántas operaciones se registraron en cada mes del año. Con esta información se determina que **el més con más transacciones es Octubre** con 838 transacciones, mientras que **Febrero es el mes con menos transacciones** con 727 transacciones.
+
+```{r 4_c}
+# Crear vector de fechas y extraer el mes
+transaction_date <- as.Date(cafe_sales_df$`Transaction Date`)
+month_vec <- format(transaction_date, "%m")
+
+# Mes con más y menos transacciones
+tabla_meses <- table(month_vec)
+print(tabla_meses)
+mes_mas   <- names(tabla_meses)[which.max(tabla_meses)]
+print(list("El mes con más transacciones es:" = mes_mas))
+mes_menos <- names(tabla_meses)[which.min(tabla_meses)]
+print(list("El mes con menos transacciones es:" = mes_menos))
+
+```
+
+<b>d) Genere diagramas de barras ordenados cronológicamente que representen estos resultados, y determine si se observa una tendencia evidente.</b>
+
+El gráfico de barras muestra la cantidad de transacciones por mes, ordenadas cronológicamente de enero a diciembre. A partir del mismo se observa que:
+
+- **Febrero** es el mes con menos transacciones, lo cual de cierto modo es esperable por tener menos días.
+- **Octubre** presenta la mayor cantidad de transacciones, aunque no se trata de un pico exageradamente alto.
+- El resto de los meses mantienen un nivel bastante homogéneo de ventas.
+
+En general, no se identifica una **tendencia estacional evidente**. La distribución de transacciones a lo largo del año es bastante estable, sin caídas ni incrementos sostenidos que indiquen un patrón temporal marcado.
+
+
+```{r 4_d}
+# Vector de fechas
+transaction_date <- as.Date(cafe_sales_df$`Transaction Date`)
+
+# Extraer mes como número (conserva el orden natural)
+month_num_vec <- format(transaction_date, "%m")
+
+# Tabla de frecuencia por mes
+tabla_meses <- table(month_num_vec)
+
+# Crear vector con nombres de los meses en orden (opcional)
+nombres_meses <- c("Ene", "Feb", "Mar", "Abr", "May", "Jun",
+                   "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")
+
+# Graficar
+barplot(tabla_meses,
+        names.arg = nombres_meses,
+        main = "Cantidad de transacciones por mes",
+        xlab = "Mes",
+        ylab = "Cantidad de transacciones",
+        col = "skyblue")
+
+```
+
+## Completar y Corregir Datos
+
+
+<b>Con base en el dataset original sin cambios, realice las siguientes operaciones:</b>
+
+<b>a) Se cumple la propiedad:</b>
+
+                    Quantity × Price Per Unit = Total Spent. 
+
+<b>Dado que cada Item tiene un precio constante durante el año, se proporciona el siguiente menú:</b>
+
+                    Cake 3
+                    Juice 3
+                    Coffee 2
+                    Cookie 1
+                    Salad 5
+                    Sandwich 4
+                    Smoothie 4
+                    Tea 1.5
+
+<b>Complete la columna `Price Per Unit` de tal manera que, en cada caso en que aparezca un `NA`, `ERROR` o `UNKNOWN`, se asigne el valor correspondiente al `Item` según el menú. Si el Item también es `NA`, `ERROR` o `UNKNOWN`, deje el valor como `NA`.</b>
+
+
+```{r 5_a}
+# Menú de precios
+menu_precios <- c(
+  "Cake" = 3,
+  "Juice" = 3,
+  "Coffee" = 2,
+  "Cookie" = 1,
+  "Salad" = 5,
+  "Sandwich" = 4,
+  "Smoothie" = 4,
+  "Tea" = 1.5
+)
+
+# Crear copia del dataset original
+cafe_sales_df_corregido <- cafe_sales_df %>%
+  mutate(
+    `Price Per Unit` = case_when(
+      (is.na(`Price Per Unit`) | `Price Per Unit` %in% c("ERROR", "UNKNOWN")) &
+        Item %in% names(menu_precios) ~ as.character(menu_precios[Item]),
+      (is.na(`Price Per Unit`) | `Price Per Unit` %in% c("ERROR", "UNKNOWN")) &
+        (is.na(Item) | Item %in% c("ERROR", "UNKNOWN")) ~ NA_character_,
+      TRUE ~ `Price Per Unit`
+    )
+  )
+```
+
+
+<b>b) Complete las columnas `Quantity`, `Price Per Unit` y `Total Spent` en aquellos casos en que falte solamente una de estas tres variables, utilizando la relación entre ellas. En caso de imposibilidad de completar el valor, deje `NA`.</b>
+
+```{r 5_b}
+# Convertimos las columnas relevantes a numérico
+cafe_sales_df_corregido <- cafe_sales_df_corregido %>%
+  mutate(
+    qty = suppressWarnings(as.numeric(Quantity)),
+    ppu = suppressWarnings(as.numeric(`Price Per Unit`)),
+    total = suppressWarnings(as.numeric(`Total Spent`)),
+
+    # Contamos cuántos NA hay por fila
+    na_count = rowSums(is.na(cbind(qty, ppu, total))),
+
+    # Completamos solo si hay exactamente 1 NA
+    qty_corr = case_when(
+      is.na(qty) & na_count == 1 ~ total / ppu,
+      TRUE ~ qty
+    ),
+    ppu_corr = case_when(
+      is.na(ppu) & na_count == 1 ~ total / qty,
+      TRUE ~ ppu
+    ),
+    total_corr = case_when(
+      is.na(total) & na_count == 1 ~ qty * ppu,
+      TRUE ~ total
+    )
+  ) %>%
+  # Reemplazamos columnas originales
+  mutate(
+    Quantity = qty_corr,
+    `Price Per Unit` = ppu_corr,
+    `Total Spent` = total_corr
+  ) %>%
+  # Eliminamos columnas auxiliares
+  select(-qty, -ppu, -total, -na_count, -qty_corr, -ppu_corr, -total_corr)
+
+```
+
+<b>c) Complete la columna Item tomando como referencia el valor de `Price Per Unit`. En particular, si `Price Per Unit` es 3, se asume que se compró una Cake (y no un Juice); de igual forma, si es 4, se asume que se compró un Sandwich (y no un Smoothie). Si no es posible determinarlo, deje el valor como `NA`.</b>
+
+```{r 5_c}
+# Mapa precio → item
+map_precio_a_item <- c(
+  "1"   = "Cookie",
+  "1.5" = "Tea",
+  "2"   = "Coffee",
+  "3"   = "Cake",       # preferimos "Cake" sobre "Juice"
+  "4"   = "Sandwich",   # preferimos "Sandwich" sobre "Smoothie"
+  "5"   = "Salad"
+)
+
+# Vector con los valores inválidos de item
+invalid_items <- c("NA", "UNKNOWN", "ERROR")
+
+# Reemplazo vectorizado
+cafe_sales_df_corregido <- cafe_sales_df_corregido %>%
+  mutate(
+    Item = case_when(
+      (is.na(Item) | Item %in% invalid_items) &
+        !is.na(`Price Per Unit`) &
+        as.character(`Price Per Unit`) %in% names(map_precio_a_item) ~
+        map_precio_a_item[as.character(`Price Per Unit`)],
+      (is.na(Item) | Item %in% invalid_items) ~ NA_character_,
+      TRUE ~ Item
+    )
+  )
+
+```
+
+<b>d) Como verificación (“sanity check”), tras realizar los tres procesos de completado secuencial, se debe obtener:
+
+- 120 `NA` en la columna Item.
+- 6 `NA` en la columna Price Per Unit.
+- 23 `NA` en la columna Quantity.
+- 23 `NA` en la columna Total Spent.
+</b>
+
+```{r 5_d}
+print(list("Cantidad de NA en Item: ", sum(is.na(cafe_sales_df_corregido$Item))))
+print(list("Cantidad de NA en Price Per Unit: ", sum(is.na(cafe_sales_df_corregido$`Price Per Unit`))))
+print(list("Cantidad de NA en Quantity: ", sum(is.na(cafe_sales_df_corregido$Quantity))))
+print(list("Cantidad de NA en Total Spent: ", sum(is.na(cafe_sales_df_corregido$`Total Spent`))))
+```
+
+<b>e) Rellene las siguientes columnas: `Item`, `Price Per Unit`, `Quantity`, `Total Spent`, `Payment Method`, `Location` y `Transaction Date` utilizando la moda (valor más frecuente, excluyendo `NA`, `ERROR` y `UNKNOWN`) de cada columna respectiva. Esto implica reemplazar no solo los `NA`, sino también los valores `ERROR` y `UNKNOWN.`
+
+Al finalizar este proceso, su dataset no deberá contener ningún valor nulo, ni `ERROR` ni `UNKNOWN.`</b>
+
+```{r 5_e}
+# Copia del dataset corregido
+cafe_sales_df_final <- cafe_sales_df_corregido
+
+# Columnas a completar
+columnas_a_rellenar <- c("Item", "Price Per Unit", "Quantity", "Total Spent",
+                         "Payment Method", "Location", "Transaction Date")
+
+# Moda limpia (excluye NA, ERROR, UNKNOWN)
+moda_limpia <- function(x) {
+  x_filtrado <- x[!(is.na(x) | x %in% c("ERROR", "UNKNOWN"))]
+  if (length(x_filtrado) == 0) return(NA)
+  names(sort(table(x_filtrado), decreasing = TRUE))[1]
+}
+
+# Aplicar imputación por moda
+for (col in columnas_a_rellenar) {
+  valores <- cafe_sales_df_final[[col]]
+  moda <- moda_limpia(valores)
+
+  if (col %in% c("Price Per Unit", "Quantity", "Total Spent")) {
+    valores <- as.numeric(valores)
+    moda <- as.numeric(moda)
+  } else if (col == "Transaction Date") {
+    valores <- as.Date(valores)
+    moda <- as.Date(moda)
+  }
+
+  # Reemplazar NA / ERROR / UNKNOWN con la moda
+  es_invalido <- is.na(valores) | valores %in% c("ERROR", "UNKNOWN")
+  valores[es_invalido] <- moda
+  cafe_sales_df_final[[col]] <- valores
+}
+
+# Verificaciones
+total_na <- sum(is.na(cafe_sales_df_final))  # Debe ser 0
+total_error_unknown <- sum(sapply(cafe_sales_df_final, function(x) sum(x %in% c("ERROR", "UNKNOWN"))))
+
+cat("Total de NA restantes: ", total_na, "\n")
+cat("Total de valores 'ERROR' o 'UNKNOWN': ", total_error_unknown, "\n")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

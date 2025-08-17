@@ -1,0 +1,630 @@
+---
+title: "Trabajo Práctico 2: Análisis de Datos Móviles"
+author: "Carlos Brutomeso"
+date: "14/04/2025"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+    toc_float: yes
+    df_print: paged
+    theme: united
+    code_download: true
+---
+## 1. Datos
+  
+```{r configuracion_gral}
+# Instalar y cargar paquetes
+required_packages <- c("readr", "dplyr", "stringr", "ggplot2", "pwr", "forcats")
+
+install_if_missing <- function(packages) {
+  for (pkg in packages) {
+    if (!require(pkg, character.only = TRUE)) {
+      install.packages(pkg, dependencies = TRUE)
+      library(pkg, character.only = TRUE)
+    }
+  }
+}
+
+install_if_missing(required_packages)
+
+# Definir la ruta del archivo
+file_path <- "Mobiles Dataset (2025).csv"
+
+# Cargar el dataset
+mobiles_df <- read_csv(file_path)
+
+# Mostrar las primeras filas del dataset
+head(mobiles_df)
+
+```
+
+## 2. Limpieza y Estandarización de Datos
+
+<b>Analizar y estandarizar el formato de columnas numéricas:
+
+- Remover caracteres no numéricos.
+- Renombrar columnas especificando sus unidades.
+
+Ejemplo:
+
+- De: `Launched Price (USA)` con valores como USD 499.
+- A: `Launched Price (USA)_USD` con valores numéricos (499).
+
+Aplicar lo anterior a las siguientes columnas: `Screen Size`, `Battery Capacity`, `Back Camera`, `Front Camera`, `RAM`, `Mobile Weight` y `Launched Price (USA)`.
+
+Consejo: Crear una función general reutilizable.</b>
+
+Para estandarizar las columnas numéricas del dataset, se desarrolló una función general que elimina caracteres no numéricos, extrae el primer valor decimal o entero presente en cada celda y renombra la columna incluyendo su unidad.
+
+En esta instancia, se optó por conservar únicamente el primer número que aparece en cada cadena de texto. Esta elección se basa en que, tras una inspección inicial, las columnas evaluadas contienen usualmente un único valor relevante, o bien valores adicionales que no aportan información sustancial para el análisis de los datos.
+
+Por lo tanto, esta simplificación resulta adecuada y funcional para los fines de este trabajo práctico, permitiendo un procesamiento eficiente sin comprometer significativamente la integridad de los datos.
+
+```{r 2}
+# Función para limpiar valores y renombrar columnas con unidades
+limpiar_y_renombrar <- function(df, columna, unidad) {
+  nueva_columna <- paste0(columna, "_", unidad)
+  
+  df %>%
+    mutate(
+      !!nueva_columna := as.numeric(
+        str_extract(
+          str_remove_all(.data[[columna]], ","),  # quitar comas
+          "[0-9]+\\.?[0-9]*"                      # extraer primer número que aparece
+        )
+      )
+    ) 
+}
+
+# Aplicación a las columnas indicadas
+mobiles_df <- mobiles_df %>%
+  limpiar_y_renombrar("Screen Size", "inches") %>%
+  limpiar_y_renombrar("Battery Capacity", "mAh") %>%
+  limpiar_y_renombrar("Back Camera", "MP") %>%
+  limpiar_y_renombrar("Front Camera", "MP") %>%
+  limpiar_y_renombrar("RAM", "GB") %>%
+  limpiar_y_renombrar("Mobile Weight", "g") %>%
+  limpiar_y_renombrar("Launched Price (USA)", "USD")
+
+```
+
+## 3. Cálculo del Tamaño de Muestra
+
+<b> Se cree que el brillo promedio de celulares es 500 nits pero se quiere hacer un test estadístico como para confirmar lo que ya se cree.</b>
+
+<b>a) Plantear las hipótesis $H_0$ y $H_1$.</b>
+
+Se plantea las hipótesis como:
+
+
+
+- Hipótesis nula: El brillo promedio es 500 nits.
+  $H_0:$  $\mu = 500$
+
+
+- Hipótesis alternativa: El brillo promedio es distinto de 500 nits.
+  $H_1:$  $\mu \neq 500$
+
+
+<b>b) ¿La hipótesis alternativa es unilateral o bilateral? </b>
+
+Es bilateral porque se busca detectar cualquier desviación significativa, ya sea por encima o por debajo de los 500 nits.
+
+<b>c) Antes de calcular el tamaño muestral, indicar cuáles son los errores tipo I ($\alpha$) y tipo II ($\beta$) de nuestro experimento. </b>
+
+Según el enunciado:
+
+- Se desea detectar **diferencias de ±100 nits** o más en el **99% de los casos en los que exista una diferencia real** \(\delta\) de esa magnitud. Esto se relaciona con el **error tipo II** (\(\beta\)) y define la **potencia del test** como \(1 - \beta = 0.99\), es decir, \(\beta = 0.01\).
+
+- Además, se requiere que, si el experimento se repitiese muchas veces, la **proporción de veces que se rechaza la hipótesis nula siendo verdadera** sea del 1%. Esto establece el **error tipo I** (\(\alpha\)) como \(\alpha = 0.01\).
+
+**En resumen:**
+
+- **Error tipo I (\(\alpha\))**: Es la probabilidad de *rechazar la hipótesis nula cuando en realidad es verdadera*. En este experimento se fija en \(\alpha = 0.01\), lo que implica que sólo 1 de cada 100 veces aceptaríamos erróneamente que el brillo es distinto de 500 nits cuando en realidad no lo es.
+
+- **Error tipo II (\(\beta\))**: Es la probabilidad de *no rechazar la hipótesis nula cuando en realidad es falsa*. Como se desea una potencia del 99%, se tiene \(\beta = 0.01\), es decir, sólo 1 de cada 100 veces dejaríamos de detectar una diferencia real de ±100 nits si realmente existe.
+
+
+
+
+<b>d) Calcular el tamaño muestral usando:
+
+$$
+\sigma = \frac{\delta \cdot \sqrt{n}}{z_{1 - \alpha/2} + z_{1 - \beta}}
+$$
+
+sabiendo que el desvío muestral es $\sigma = 175$ (conocido exactamente). Indicar los valores de $z$ y el resultado obtenido.</b>
+
+Los valores utilizados en el cálculo fueron:
+
+\[
+z_{1 - \alpha/2} = 2.576 \quad \text{y} \quad z_{1 - \beta} = 2.326
+\]
+
+Por lo tanto, el tamaño muestral necesario es:
+
+\[
+n = \left( \frac{(z_{1 - \alpha/2} + z_{1 - \beta}) \cdot \sigma}{\delta} \right)^2 = \left( \frac{(2.576 + 2.326) \cdot 175}{100} \right)^2 \approx 73.59
+\]
+
+Finalmente, redondeando hacia arriba:
+
+\[
+n = 74
+\]
+
+
+<b> e) Recalcular el tamaño muestral utilizando R. Indicar qué hacer si el resultado obtenido no es un número entero.</b>
+
+El tamaño muestral resultante será un número real. Como no se pueden tomar fracciones de observaciones, **se debe redondear hacia arriba al número entero más próximo para asegurar la potencia deseada del test**. Esto asegura que el tamaño muestral sea suficiente para detectar el efecto especificado con el nivel de confianza requerido.
+
+```{r 3_e}
+# Parámetros
+delta <- 100
+sigma <- 175
+alpha <- 0.01
+power <- 0.99
+d <- delta / sigma
+
+# Cálculo del tamaño muestral
+result <- pwr.norm.test(d = d, sig.level = alpha, power = power, alternative = "two.sided")
+print(paste("Tamaño muestral necesario:", result$n))
+print(paste("Tamaño muestral necesario (redondeado hacia arriba):", ceiling(result$n)))
+```
+
+
+## 4. Estadísticas Descriptivas y Visualizaciones
+
+### Estadísticas descriptivas
+
+<b> Para las columnas limpias:
+
+- Calcular: media, mediana, mínimo, máximo y desviación estándar.
+- Identificar outliers con algun metodo no visual (Tests, Z-Scores,
+IQR, lo que quieran).
+- Comentar si encuentran relaciones o correlaciones fuertes entre
+variables. (las van a usar más adelante)
+
+### Visualizaciones
+
+- Realizar histogramas de al menos dos variables y describir sus
+formas (simétricas, sesgadas, multimodales, etc.).
+- Generar boxplots para detectar outliers y, en caso de encontrar un
+outlier en la columna de precio USD, remover esa fila. Además,
+comparar agrupaciones por Brand o Model cuando sea posible.
+
+Sugerencia: Utilizar las funciones summary(), hist(), boxplot() y
+la librería ggplot2.</b> 
+
+
+A continuación se presenta un análisis exploratorio de las variables numéricas previamente estandarizadas, incluyendo estadísticas descriptivas, detección de valores atípicos mediante el método del rango intercuartílico (IQR), y una evaluación de correlaciones lineales entre variables.
+
+#### 1. Estadísticas Descriptivas
+Las variables analizadas muestran valores coherentes con los rangos esperables en dispositivos móviles. Se destacan los siguientes aspectos:
+
+- Screen Size: varía entre 5 y 14.6 pulgadas, con una media de 7.08 y mediana de 6.67, lo que indica una distribución ligeramente sesgada hacia tamaños mayores.
+
+- Battery Capacity: tiene un rango amplio (2,000 a 11,200 mAh), con una media de 5,026 mAh. La dispersión sugiere la inclusión de modelos con baterías extendidas o de gama alta.
+
+- Back Camera y Front Camera: presentan valores máximos de 200 MP y 60 MP, respectivamente. Aunque las medianas (50 MP y 16 MP) están en rangos razonables, estos máximos sugieren la presencia de valores extremos.
+
+- RAM: varía de 1 a 16 GB, con una media cercana a 8 GB. Los valores son consistentes con dispositivos de gama media a alta.
+
+- Mobile Weight: oscila entre 135 y 732 gramos, con una media de 228 gramos. El valor máximo resulta inusualmente alto para un smartphone.
+
+- Launched Price (USD): abarca desde USD 79 hasta un valor extremo de USD 39,622. La media (USD 625) y mediana (USD 449) reflejan una fuerte asimetría positiva, indicando la existencia de productos premium o casos atípicos.
+
+#### 2. Detección de Outliers (método IQR)
+Se aplicó el método de rango intercuartílico (IQR) para identificar valores atípicos. Para cada variable se calcularon los límites inferior y superior, y la cantidad de observaciones fuera de esos rangos:
+
+- Variables como RAM, Battery Capacity, Screen Size y Mobile Weight presentan más de 100 valores atípicos cada una.
+
+- La variable Launched Price (USD) tiene 20 valores por encima del umbral superior de USD 1,747.50, confirmando la existencia de precios anómalamente altos.
+
+- Algunas variables, como Front Camera, no presentan outliers según este criterio, lo que indica una distribución más concentrada.
+
+- Esta información es clave para decidir el tratamiento posterior de valores extremos.
+
+#### 3. Correlaciones
+Se calculó la matriz de correlaciones de Pearson entre las variables numéricas. Entre los hallazgos más relevantes:
+
+- Screen Size muestra una fuerte correlación positiva con el peso del dispositivo (0.98) y también con la capacidad de batería (0.88). Esto es consistente con la idea de que dispositivos más grandes requieren baterías más potentes y resultan más pesados.
+
+- Mobile Weight también se relaciona con Battery Capacity (0.85), reforzando la asociación estructural entre tamaño físico y especificaciones técnicas.
+
+- La Back Camera y la Front Camera están moderadamente correlacionadas entre sí (0.45), lo cual es esperable en diseños simétricos de cámaras en modelos más recientes.
+
+- En cambio, el precio de lanzamiento no presenta correlaciones fuertes con ninguna variable específica (todas cercanas a 0.10 o menos), lo que sugiere que factores como marca, diseño u otros atributos no cuantificados podrían ser determinantes.
+
+
+```{r 4_desc_stats}
+## 1. Estadísticas descriptivas para las columnas limpias
+mobiles_df %>%
+  select(ends_with("_inches"), ends_with("_mAh"), ends_with("_MP"),
+         ends_with("_GB"), ends_with("_g"), ends_with("_USD")) %>%
+  summary()
+
+## 2. Outliers
+# Función que devuelve límites inferior/superior y cantidad de outliers
+resumen_outliers_iqr <- function(x) {
+  q1 <- quantile(x, 0.25, na.rm = TRUE)
+  q3 <- quantile(x, 0.75, na.rm = TRUE)
+  iqr <- q3 - q1
+  lim_inf <- q1 - 1.5 * iqr
+  lim_sup <- q3 + 1.5 * iqr
+  cantidad <- sum(x < lim_inf | x > lim_sup, na.rm = TRUE)
+  c(Límite_inferior = lim_inf, Límite_superior = lim_sup, Outliers = cantidad)
+}
+
+# Aplicar la función a todas las variables numéricas limpias
+outliers_iqr_resumen <- mobiles_df %>%
+  select(ends_with("_inches"), ends_with("_mAh"), ends_with("_MP"),
+         ends_with("_GB"), ends_with("_g"), ends_with("_USD")) %>%
+  summarise(across(everything(), resumen_outliers_iqr))
+
+# Transponer para ver una variable por fila
+outliers_iqr_resumen <- as.data.frame(t(outliers_iqr_resumen))
+
+# Mostrar tabla
+outliers_iqr_resumen
+
+
+## 3. Correlaciones
+# Seleccionar variables numéricas limpias
+numeric_vars <- mobiles_df %>%
+  select(ends_with("_inches"), ends_with("_mAh"), ends_with("_MP"),
+         ends_with("_GB"), ends_with("_g"), ends_with("_USD"))
+
+# Matriz de correlación
+cor_matrix <- cor(numeric_vars, use = "complete.obs")
+
+# Mostrar matriz
+round(cor_matrix, 2)
+```
+
+
+#### 4. Histogramas
+Se analizaron las distribuciones de dos variables técnicas relevantes: la capacidad de batería (Battery Capacity_mAh) y la memoria RAM (RAM_GB).
+
+El histograma de capacidad de batería presenta una distribución asimétrica hacia la derecha, con una concentración notable en torno a los 5,000 mAh, valor que actúa como pico modal. Existen numerosos valores dispersos hacia ambos extremos, pero particularmente hacia capacidades más elevadas, lo cual sugiere la inclusión de dispositivos de gama alta o con baterías de gran autonomía. La presencia de varios valores fuera del centro indica también una posible dispersión técnica significativa entre modelos.
+
+Por otro lado, la distribución de la RAM es claramente multimodal y discreta, con picos bien definidos en valores como 4 GB, 6 GB, 8 GB y 12 GB, que responden a configuraciones típicas en el mercado. Esta forma refleja que la RAM no varía de forma continua, sino en bloques preestablecidos por los fabricantes. Además, se observa una fuerte concentración entre 4 GB y 8 GB, lo cual representa el estándar actual de la industria.
+
+En resumen, ambas variables muestran comportamientos distintos: la batería presenta una variabilidad continua con cierto sesgo positivo, mientras que la RAM evidencia una segmentación clara por configuraciones discretas. Estas características deberán ser tenidas en cuenta al momento de construir modelos explicativos o predictivos.
+
+
+#### 5. Boxplot del precio
+El boxplot del precio de lanzamiento en dólares (USD) revela una distribución altamente asimétrica, con varios valores atípicos por encima del rango superior, incluyendo un caso extremo cercano a USD 39.622.
+
+Para evitar que estos valores distorsionen los análisis posteriores, se aplicó el criterio del rango intercuartílico (IQR). Bajo este criterio, se definió un umbral de corte de aproximadamente USD 1.747,50 (Q3 + 1.5 * IQR), y se eliminaron del conjunto aquellas observaciones que lo superan. Esta decisión reduce el sesgo producido por productos fuera del rango comercial habitual, como ediciones limitadas o errores de carga.
+
+Luego, se comparó el precio entre marcas mediante un boxplot agrupado por Brand. Este gráfico permite observar cómo se posicionan las distintas marcas en términos de precio, y sugiere diferencias importantes entre fabricantes: algunas muestran una distribución más compacta, mientras que otras presentan una mayor dispersión, posiblemente reflejando la coexistencia de líneas económicas y premium.
+
+```{r 4_visualizaciones}
+## 4. Histogramas
+# Histograma 1: Capacidad de batería
+ggplot(mobiles_df, aes(x = `Battery Capacity_mAh`)) +
+  geom_histogram(binwidth = 250, fill = "lightblue", color = "black") +
+  labs(title = "Distribución de la capacidad de batería (mAh)",
+       x = "Capacidad (mAh)", y = "Frecuencia") +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  )
+
+# Histograma 2: RAM
+ggplot(mobiles_df, aes(x = `RAM_GB`)) +
+  geom_histogram(binwidth = 1, fill = "lightblue", color = "black") +
+  labs(title = "Distribución de la memoria RAM (GB)",
+       x = "RAM (GB)", y = "Frecuencia") +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  )
+
+## 5. Boxplot del precio
+# Boxplot
+ggplot(mobiles_df, aes(y = `Launched Price (USA)_USD`)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Boxplot del precio de lanzamiento (USD)",
+       y = "Precio (USD)") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  )
+
+# Calcular límites inferior y superior con IQR
+q1 <- quantile(mobiles_df$`Launched Price (USA)_USD`, 0.25, na.rm = TRUE)
+q3 <- quantile(mobiles_df$`Launched Price (USA)_USD`, 0.75, na.rm = TRUE)
+iqr <- q3 - q1
+lim_sup <- q3 + 1.5 * iqr
+
+# Filtrar el dataset removiendo outliers
+mobiles_df <- mobiles_df %>%
+  filter(`Launched Price (USA)_USD` <= lim_sup)
+
+# Boxplot por marca
+ggplot(mobiles_df, aes(x = `Company Name`, y = `Launched Price (USA)_USD`)) +
+  geom_boxplot(fill = "lightblue", color = "black") +
+  labs(title = "Precio de lanzamiento por marca",
+       x = "Marca", y = "Precio (USD)") +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold")
+  )
+
+
+```
+
+## 5. Test de Normalidad
+<b> Seleccionar 2 columnas a eleccion y aplicar el test de Shapiro-Wilk (shapiro.test). Realizar un Q-Q plot para la visualización y, finalmente, interpretar los resultados (p-value, aceptación o rechazo de normalidad con $\alpha = 5\%$).</b> 
+
+Se aplicó el test de Shapiro-Wilk a dos variables del dataset (Battery Capacity y RAM), con el fin de evaluar si siguen una distribución normal:
+
+- Para Battery Capacity, el valor estadístico fue W = 0.7926 y el p-value < 2.2e-16.
+
+- Para RAM, se obtuvo W = 0.9033, también con p-value < 2.2e-16.
+
+En ambos casos, **los p-values son menores al nivel de significancia $\alpha = 5\%$, por lo que se rechaza la hipótesis nula de normalidad**. Esto indica que ninguna de las dos variables se distribuye normalmente. Esta conclusión se refuerza al observar los Q-Q plots:
+
+- En el caso de Battery Capacity, se observa un claro alejamiento de la línea teórica en ambos extremos, especialmente en los extremos, lo que confirma una asimetría positiva.
+
+- En RAM, la naturaleza discreta y escalonada de los valores produce una distribución que se aparta drásticamente del patrón esperado bajo normalidad, evidenciando también multimodalidad.
+
+Por tanto, para estas variables no se recomienda utilizar métodos que asuman normalidad.
+```{r 5}
+## Test de normalidad
+# Test de normalidad para Battery Capacity
+shapiro.test(mobiles_df$`Battery Capacity_mAh`)
+
+# Test de normalidad para RAM
+shapiro.test(mobiles_df$`RAM_GB`)
+
+# Q-Q Plot para Battery Capacity
+qqnorm(mobiles_df$`Battery Capacity_mAh`, main = "Q-Q Plot: Battery Capacity (mAh)")
+qqline(mobiles_df$`Battery Capacity_mAh`, col = "blue", lwd = 2)
+
+# Q-Q Plot para RAM
+qqnorm(mobiles_df$`RAM_GB`, main = "Q-Q Plot: RAM (GB)")
+qqline(mobiles_df$`RAM_GB`, col = "blue", lwd = 2)
+
+```
+
+## 6. Correlación y Significancia
+<b> Elegir dos columnas relacionadas, y: 
+
+- Realizar un diagrama de dispersión para observar la relación entre las variables.
+- Calcular la correlación de Pearson utilizando cor.test.
+- Reportar el valor de r, el p-value, la significancia ($\alpha = 5\%$) y la fuerza de la correlación.</b> 
+
+
+Se analizó la relación entre la **capacidad de batería** (`Battery Capacity_mAh`) y el **peso del dispositivo móvil** (`Mobile Weight_g`) mediante un *diagrama de dispersión* y el cálculo del **coeficiente de correlación de Pearson**.
+
+El análisis arrojó un **coeficiente de correlación** r = 0.8467, con un **p-value < 2.2e-16**. Dado que el p-value es menor que el nivel de significancia $\alpha = 5\%$, se **rechaza la hipótesis nula** de ausencia de correlación. Por lo tanto, se concluye que existe una **relación estadísticamente significativa** entre ambas variables.
+
+Además, la magnitud del coeficiente indica una **correlación positiva fuerte**. Es decir, a mayor capacidad de batería, mayor es el peso del dispositivo, lo cual resulta coherente desde un punto de vista técnico: las baterías de mayor capacidad requieren más material físico, lo que naturalmente incrementa el peso total del equipo.
+
+En el gráfico de dispersión se observa una **tendencia lineal clara**, con los puntos distribuidos cerca de la recta de regresión. Esto refuerza visualmente la presencia de una **relación fuerte y positiva** entre ambas variables.
+
+```{r 6}
+# Diagrama de dispersión con línea de regresión
+ggplot(mobiles_df, aes(x = `Battery Capacity_mAh`, y = `Mobile Weight_g`)) +
+  geom_point(color = "darkblue", alpha = 0.5) +
+  geom_smooth(method = "lm", se = FALSE, color = "red", linewidth = 1) +
+  labs(title = "Relación entre Capacidad de Batería y Peso del Móvil",
+       x = "Capacidad de Batería (mAh)", y = "Peso (g)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text = element_text(size = 10)
+  )
+
+# Correlación de Pearson
+cor.test(mobiles_df$`Battery Capacity_mAh`, mobiles_df$`Mobile Weight_g`)
+```
+
+## 7. Test t para una muestra
+
+<b>Plantear una hipótesis sobre la media de una variable numérica. Aplicar el test t. Interpretar los resultados obtenidos.</b>
+
+Se plantea la siguiente hipótesis sobre la **capacidad media de batería** de los dispositivos móviles:
+
+\[
+\begin{aligned}
+H_0 &: \mu \leq 4900 \text{ mAh} \\
+H_1 &: \mu > 4900 \text{ mAh}
+\end{aligned}
+\]
+
+Se utiliza el **test t para una muestra** para evaluar si la capacidad promedio de batería es significativamente mayor a 4900 mAh. El test arrojó un **valor t = 2.718**, con **909 grados de libertad** y un **p-value = 0.0034**. Dado que el p-value es menor al nivel de significancia  = 0.05, se **rechaza la hipótesis nula**. Esto indica que existe **evidencia estadísticamente significativa** para afirmar que la **capacidad media de batería de los dispositivos móviles es mayor a 4900 mAh**.
+
+```{r 7}
+# Test t para una muestra
+t.test(mobiles_df$`Battery Capacity_mAh`, mu = 4900, alternative = "greater")
+```
+
+## 8. Test Chi-cuadrado de Independencia
+<b>
+
+- Crear una variable categórica denominada `High Battery`:
+  - Asignar el valor ’Alta’ si `Battery Capacity_mAh` es mayor o
+igual a la mediana.
+  -  Asignar 'Baja' si es menor.
+- Seleccionar una segunda variable categórica existente (por ejemplo, Brand o Model).
+- Construir una tabla de contingencia y aplicar la función chisq.test().
+- Visualizar los resultados mediante un barplot apilado utilizando geom_bar(position="fill").</b>
+
+
+Se aplicó un test \(\chi^2\) de independencia para evaluar si existe asociación entre la **marca del dispositivo** (`Company Name`) y la **capacidad de batería** clasificada como `High Battery` (Alta/Baja según la mediana).
+
+El resultado fue:
+
+- \(\chi^2 = 263.88\), $df = 19$, $p-value < 2.2e-16$
+
+Dado que el *p*-valor es menor que \(\alpha = 0.05\), se **rechaza la hipótesis nula**. Esto indica que existe una **asociación estadísticamente significativa entre la marca y la categoría de batería**.
+
+El gráfico de barras apiladas respalda esta conclusión al mostrar diferencias marcadas en la proporción de móviles con batería alta o baja entre marcas. Algunas como **Sony** concentran modelos con baterías grandes, mientras que otras como **Apple presentan una mayoría con baterías por debajo de la mediana.
+
+
+
+```{r 8}
+# Crear variable categórica High Battery
+mediana_bateria <- median(mobiles_df$`Battery Capacity_mAh`, na.rm = TRUE)
+
+mobiles_df <- mobiles_df %>%
+  mutate(`High Battery` = ifelse(`Battery Capacity_mAh` >= mediana_bateria, "Alta", "Baja"))
+
+# Tabla de contingencia
+tabla_chi <- table(mobiles_df$`High Battery`, mobiles_df$`Company Name`)
+
+# Test Chi-cuadrado
+chisq.test(tabla_chi)
+
+# Plot
+ggplot(mobiles_df, aes(x = fct_reorder(`Company Name`, `High Battery` == "Alta", .fun = mean), 
+                       fill = `High Battery`)) +
+  geom_bar(position = "fill") +
+  labs(title = "Proporción de móviles con batería alta o baja por marca",
+       x = "Marca", y = "Proporción", fill = "Capacidad de Batería") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 10)
+  )
+
+```
+
+## 9. Bootstrap para Evaluar la Incertidumbre del IQR
+
+Se busca estimar la dispersión del precio de lanzamiento en dólares (`Launched Price (USA)_USD`) y evaluar la incertidumbre de esta medida usando bootstrap.
+
+#### a) IQR observado
+
+```{r}
+# Calcular el IQR directamente
+iqr_original <- IQR(mobiles_df$`Launched Price (USA)_USD`, na.rm = TRUE)
+iqr_original
+```
+
+#### b) Bootstrap no paramétrico
+
+```{r}
+# Vector original sin NA
+precio <- na.omit(mobiles_df$`Launched Price (USA)_USD`)
+n <- length(precio)
+
+# Bootstrap con 10.000 repeticiones
+set.seed(123)
+iqr_boot <- replicate(10000, {
+  muestra <- sample(precio, size = n, replace = TRUE)
+  IQR(muestra)
+})
+```
+
+#### c) Intervalo de confianza del 95%
+
+```{r}
+# Calcular percentiles 2.5 y 97.5
+quantile(iqr_boot, probs = c(0.025, 0.975))
+```
+
+#### d) Histograma de la distribución bootstrap
+
+```{r}
+# Obtener extremos del IC
+ic <- quantile(iqr_boot, probs = c(0.025, 0.975))
+
+# Histograma con el intervalo marcado
+hist(iqr_boot, breaks = 50, col = "lightblue",
+     main = "Distribución Bootstrap del IQR del Precio",
+     xlab = "IQR", border = "white")
+abline(v = ic, col = "red", lwd = 2, lty = 2)
+text(x = ic[1], y = par("usr")[4]*0.9, labels = round(ic[1], 2), col = "red", pos = 4)
+text(x = ic[2], y = par("usr")[4]*0.9, labels = round(ic[2], 2), col = "red", pos = 2)
+```
+
+#### Interpretación
+
+El **IQR observado** del precio de lanzamiento fue de **550 USD**. Para evaluar la incertidumbre asociada a este estimador, se aplicó un **bootstrap no paramétrico con 10.000 repeticiones**. A partir de esta simulación, se construyó un **intervalo de confianza del 95%** utilizando los percentiles 2.5% y 97.5% de la distribución bootstrap del IQR. 
+
+El resultado fue el siguiente intervalo de confianza: **[520.00 USD ; 644.26 USD]**. Este resultado sugiere que, debido a la variabilidad muestral, el **rango intercuartílico real del precio de lanzamiento** podría encontrarse dentro de ese intervalo en el 95% de los casos, si el proceso de muestreo se repitiera múltiples veces.
+
+El **histograma** muestra la distribución de los valores de IQR generados por bootstrap, con los extremos del intervalo de confianza destacados en rojo. La distribución es razonablemente simétrica y centrada cerca del IQR observado, lo que **refuerza la confiabilidad del estimador** en este caso.
+
+
+
+## 10. Distancias Promedio
+
+Seleccionamos las columnas de interés y las **estandarizamos** para evitar que las variables con mayores escalas dominen la distancia. Luego de estandarizar las variables involucradas, se calcularon las **distancias euclídeas promedio** entre observaciones para distintas combinaciones de variables técnicas y físicas de los dispositivos móviles:
+
+- `Back Camera_MP` y `Front Camera_MP`: 
+  La distancia promedio fue de **1.60**, lo que indica una **alta dispersión relativa** entre las configuraciones de cámaras delanteras y traseras. Esto sugiere que los valores de megapíxeles entre ambas cámaras varían significativamente entre dispositivos.
+
+- `Back Camera_MP` y `Mobile Weight_g`:  
+  La distancia promedio fue de **1.44**, apenas menor que la anterior. Esto muestra que **la combinación entre calidad de cámara trasera y peso también presenta una importante variabilidad**, aunque ligeramente inferior a la variabilidad entre cámaras.
+
+- `Front Camera_MP` y `Mobile Weight_g`:
+  La distancia promedio fue de **1.54**, posicionándose entre los dos casos anteriores. Esta combinación refleja una **dispersión moderada**, mostrando que los dispositivos varían considerablemente en esta dupla de características también.
+
+En todos los casos, los valores relativamente altos indican que **los dispositivos difieren bastante entre sí** en estas dimensiones, incluso después de estandarizar las escalas. Las combinaciones que involucran cámaras tienden a mostrar mayor dispersión, posiblemente por la gran variedad de configuraciones técnicas entre modelos y marcas.
+
+
+#### Distancia Euclídea promedio entre `Back Camera_MP` y `Front Camera_MP`
+
+```{r}
+# Selección y estandarización
+cam_df <- mobiles_df %>%
+  select(`Back Camera_MP`, `Front Camera_MP`) %>%
+  na.omit()
+
+cam_std <- scale(cam_df)
+
+# Matriz de distancias
+dist_cam <- dist(cam_std, method = "euclidean")
+
+# Distancia promedio
+mean_dist_cam <- mean(as.numeric(dist_cam))
+mean_dist_cam
+```
+
+#### Distancia Euclídea promedio entre `Back Camera_MP` y `Mobile Weight_g`
+
+```{r}
+cam_weight_df <- mobiles_df %>%
+  select(`Back Camera_MP`, `Mobile Weight_g`) %>%
+  na.omit()
+
+cam_weight_std <- scale(cam_weight_df)
+
+dist_cam_weight <- dist(cam_weight_std, method = "euclidean")
+mean_dist_cam_weight <- mean(as.numeric(dist_cam_weight))
+mean_dist_cam_weight
+```
+
+#### Distancia Euclídea promedio entre `Front Camera_MP` y `Mobile Weight_g`
+
+```{r}
+front_weight_df <- mobiles_df %>%
+  select(`Front Camera_MP`, `Mobile Weight_g`) %>%
+  na.omit()
+
+front_weight_std <- scale(front_weight_df)
+
+dist_front_weight <- dist(front_weight_std, method = "euclidean")
+mean_dist_front_weight <- mean(as.numeric(dist_front_weight))
+mean_dist_front_weight
+```
+
+
+
+
+
+
+
+

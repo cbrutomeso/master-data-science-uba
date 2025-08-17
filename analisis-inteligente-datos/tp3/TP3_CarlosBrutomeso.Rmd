@@ -1,0 +1,409 @@
+---
+title: "Trabajo Práctico 3: Análisis de Componentes Principales"
+author: "Carlos Brutomeso"
+date: "06/05/2025"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+    toc_float: yes
+    df_print: paged
+    theme: united
+    code_download: true
+---
+
+Para este trabajo práctico se trabajará sobre la base de datos de FIFA 2024 MEN. Setear la semilla con los últimos 3 digitos del DNI para obtener una muestra de 2000 individuos.
+
+```{r}
+# Instalación (si aún no están instalados)
+#install.packages("tidyverse", repos = "https://cloud.r-project.org")
+#install.packages("ggplot2", repos = "https://cloud.r-project.org")
+#install.packages("skimr", repos = "https://cloud.r-project.org")
+#install.packages("factoextra", repos = "https://cloud.r-project.org")
+#install.packages("rrcov", repos = "https://cloud.r-project.org")
+#install.packages("ggrepel", repos = "https://cloud.r-project.org")
+
+# Carga de librerías
+library(tidyverse)
+library(ggplot2)
+library(skimr)
+library(factoextra)
+library(rrcov)
+library(ggrepel)
+
+wd <- "player_stats.csv"
+
+df <- read.csv(wd)
+
+set.seed(375) #cambiar por los 3 digitos del DNI.
+
+sample <- df %>% 
+          sample_n(2000)# muestreo aletorio de 2000 individuos
+
+```
+
+# Objetivo
+
+Aplicar el Análisis de Componentes Principales (PCA) para reducir la dimensionalidad del dataset de FIFA 2024 Men, identificar patrones en los datos y visualizar cómo se agrupan los jugadores en función de sus características.
+
+# Análisis exploratorio de datos y preprocesamiento
+
+**1- Analice la presencia de valores faltantes y datos duplicados.**
+
+Se analizó la proporción de valores faltantes para cada variable del conjunto de datos. Solo una variable presentó valores faltantes de forma completa: `marking`, con el 100% de observaciones ausentes. Esto indica que no aporta información útil para el análisis y puede eliminarse sin pérdida de información relevante. Todas las demás variables se encuentran completas, sin valores faltantes.
+
+En cuanto a los datos duplicados, se verificó si existían jugadores repetidos utilizando la variable `player` como identificador. Se detectaron 3 jugadores con el mismo nombre, aunque no se encontraron filas duplicadas completas. Esto indica que los registros corresponden a jugadores distintos con el mismo nombre o múltiples versiones válidas de un mismo jugador (por ejemplo, con diferentes clubes o atributos en distintas ediciones del juego). Por tanto, no se requiere eliminación de filas.
+
+
+```{r}
+# Visualizar estructura básica
+str(sample)
+
+# Convertir 'value' a variable numérica
+sample <- sample %>%
+  mutate(
+    value_clean = gsub("\\$", "", value),           # 1. Eliminar símbolo $
+    value_clean = gsub("\\.", "", value_clean),     # 2. Eliminar puntos (separadores de miles)
+    value_num = as.numeric(value_clean),            # 3. Convertir a numérico
+    value_num = ifelse(value_num < 100000, value_num * 10, value_num) # 4. Corregir valores bajos
+  )
+
+# Convertir 'marking' a variable entera
+sample <- sample %>%
+  mutate(
+    marking = as.integer(marking)
+  )
+
+# Proporción de valores faltantes por columna
+missing_summary <- sample %>%
+  summarise(across(everything(), ~mean(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "prop_missings") %>%
+  arrange(desc(prop_missings))
+
+print(missing_summary, n = Inf)
+
+# Revisar duplicados (filas idénticas completas)
+duplicated_rows <- sample %>% 
+  duplicated() %>% 
+  sum()
+
+cat("Cantidad de filas duplicadas:", duplicated_rows, "\n")
+
+duplicated_players <- sample %>%
+  filter(duplicated(player))
+
+cat("Cantidad de jugadores duplicados:", nrow(duplicated_players), "\n")
+
+
+```
+
+**2- Seleccione un subconjunto de variables relevantes para realizar el PCA. Justifique la selección.**
+
+Para la realización del PCA se seleccionó un subconjunto de variables que combina atributos físicos y técnicos generales de los jugadores de campo. Se excluyeron las variables relacionadas exclusivamente con arqueros (por ejemplo, `gk_diving`, `gk_reflexes`) y el valor monetario (`value_num`), con el fin de enfocarse en características observables de desempeño y no en estimaciones de mercado.
+
+El conjunto final de variables incluye:
+
+- **Atributos físicos**: `height`, `weight`, `age`, `stamina`, `strength`, `sprint_speed`, `agility`
+- **Atributos técnicos**: `ball_control`, `dribbling`, `short_pass`, `long_pass`
+
+Esta selección permite capturar tanto el perfil físico (estatura, fuerza, velocidad) como el técnico (capacidad de pase, control y regate), resultando útil para identificar agrupamientos latentes entre jugadores en función de su estilo de juego y tipo corporal.
+
+```{r}
+# Selección de variables físicas y técnicas generales
+pca_vars <- c("height", "weight", "age",
+              "ball_control", "dribbling", "short_pass", "long_pass",
+              "stamina", "strength", "sprint_speed", "agility")
+
+# Crear nuevo dataframe con solo esas variables
+sample_pca <- sample %>%
+  select(all_of(pca_vars)) %>%
+  drop_na()
+```
+
+**3- Realice una descripción de las variables numéricas seleccionadas.**
+
+Los histogramas iniciales permitieron explorar la forma general de las distribuciones para cada variable seleccionada. La mayoría presenta un patrón aproximadamente normal, aunque con algunas desviaciones. Por ejemplo, `height` y `weight` muestran distribuciones simétricas centradas en torno a 182 cm y 75.5 kg respectivamente, coherentes con estándares físicos del fútbol profesional. En cambio, `age` está ligeramente sesgada a la izquierda, reflejando una concentración de jugadores más jóvenes. Las variables técnicas como `ball_control`, `dribbling`, `short_pass` y `long_pass` están sesgadas hacia valores altos, lo cual indica una predominancia de buenos niveles técnicos en la muestra. Por su parte, las variables `agility` y `sprint_speed` también tienden a concentrarse en valores altos, aunque con colas más largas hacia la izquierda.
+
+Los boxplots complementan este análisis al resaltar valores atípicos y la dispersión de cada variable. Se observa que `height`, `weight` y `strength` presentan outliers en ambos extremos, evidenciando la presencia de perfiles físicos inusuales. Las variables técnicas también muestran algunos valores extremos, aunque en menor proporción, lo que sugiere una mayor homogeneidad en el rendimiento técnico. En contraste, `agility` y `sprint_speed` muestran colas más pronunciadas hacia abajo, lo que confirma que hay una minoría de jugadores con bajos niveles de agilidad y/o velocidad.
+
+Finalmente, las estadísticas resumen refuerzan estas observaciones. Por ejemplo, `ball_control` tiene una media de 58.29 y un desvío estándar de 16.75, con valores entre 9 y 94, mientras que `dribbling` muestra mayor dispersión (sd = 18.97), indicando más heterogeneidad. Las variables físicas también cubren rangos amplios, por ejemplo, `strength` varía entre 27 y 93. Esta combinación de buena variabilidad, presencia moderada de outliers y formas de distribución aceptables valida la selección de estas variables para aplicar PCA sin necesidad de transformaciones adicionales, más allá de la estandarización.
+
+```{r}
+# Convertir a formato largo para graficar múltiples histogramas
+sample_pca_long <- sample_pca %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "valor")
+
+# Graficar histogramas por variable
+ggplot(sample_pca_long, aes(x = valor)) +
+  geom_histogram(bins = 30, fill = "lightblue", color = "black") +
+  facet_wrap(~ variable, scales = "free", ncol = 4) +
+  theme_minimal() +
+  labs(title = "Histogramas por variable (PCA)", x = NULL, y = NULL)
+
+# Crear boxplots
+ggplot(sample_pca_long, aes(x = variable, y = valor)) +
+  geom_boxplot(fill = "lightblue", color = "black", outlier.color = "red", outlier.size = 1.5) +
+  facet_wrap(~ variable, scales = "free", ncol = 4) +
+  theme_minimal() +
+  labs(title = "Distribución de variables seleccionadas (Boxplots)",
+       x = NULL, y = NULL) +
+  theme(strip.text = element_text(face = "bold"),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+# Generar estadísticas descriptivas
+skim(sample_pca)
+```
+
+**4- ¿Se estandarizaron las variables? Justifique.**
+
+Sí, las variables fueron estandarizadas antes de aplicar el Análisis de Componentes Principales. Esta decisión se justifica por las siguientes razones:
+
+- Las variables seleccionadas están medidas en escalas diferentes. Por ejemplo, `height` varía entre 156 y 204 centímetros, mientras que variables como `dribbling` o `ball_control` se expresan en una escala de 0 a 100 puntos.
+  
+- El PCA se basa en la varianza y covarianza entre variables. Si no se estandarizan, aquellas con mayor escala o dispersión dominarían las componentes principales, sesgando la interpretación del análisis.
+
+- Por esta razón, todas las variables fueron transformadas en z-scores, es decir, se les restó su media y se dividieron por su desvío estándar. Esta transformación asegura que cada variable tenga media 0 y desvío estándar 1, otorgando igual peso a todas en la construcción de las componentes principales.
+
+En R, la estandarización se realizó utilizando la función `scale()`, aplicada a las once variables seleccionadas para el PCA.
+
+```{r}
+# Escalar (estandarizar) las variables: z-score (media 0, sd 1)
+sample_pca_scaled <- scale(sample_pca)
+
+# Convertir a data.frame
+sample_pca_scaled <- as.data.frame(sample_pca_scaled)
+```
+
+# PCA e interpretación.
+
+**5- Realice el PCA sobre las variables seleccionadas. ¿Con cuantas componentes decide quedarse luego de la reduccion de dimensionalidad?**
+
+Se aplicó el Análisis de Componentes Principales (PCA, por sus siglas en inglés) sobre las once variables estandarizadas previamente seleccionadas. El objetivo fue reducir la dimensionalidad conservando la mayor parte de la varianza total del conjunto de datos.
+
+El scree plot muestra una fuerte caída en los primeros dos componentes, seguido por una disminución más gradual en los siguientes. Este patrón es indicativo de una estructura donde las primeras componentes concentran la mayor parte de la información.
+
+La tabla de autovalores indica que la primera componente (`PC1`) tiene un autovalor de 5.86 y explica el 53.3% de la varianza total, mientras que la segunda componente (`PC2`) tiene un autovalor de 2.40 y explica un 21.8% adicional. En conjunto, las dos primeras componentes explican aproximadamente el 75.1% de la varianza acumulada.
+
+Aplicando el criterio de Kaiser, que propone conservar únicamente aquellas componentes cuyo autovalor sea mayor a uno, se justifica la retención de dos componentes principales. Además, el scree plot muestra un quiebre claro (codo) después de la segunda componente, lo que refuerza esta elección desde el punto de vista visual. En función de estos resultados, se decidió conservar las dos primeras componentes principales. Esta decisión representa un equilibrio adecuado entre la simplificación del modelo y la capacidad explicativa, y permite capturar una estructura latente significativa sin incorporar ruido proveniente de componentes menores.
+
+```{r}
+# PCA
+pca_result <- prcomp(sample_pca_scaled, center = FALSE, scale. = FALSE)
+
+# Eigenvalues y varianza explicada
+eigenvalues <- pca_result$sdev^2
+diffs <- c(NA, diff(eigenvalues))
+proportion <- eigenvalues / sum(eigenvalues)
+cumulative <- cumsum(proportion)
+
+# Crear tabla
+pca_summary <- data.frame(
+  Component = paste0("Comp", seq_along(eigenvalues)),
+  Eigenvalue = round(eigenvalues, 2),
+  Difference = round(diffs, 2),
+  Proportion = round(proportion, 2),
+  Cumulative = round(cumulative, 2)
+)
+
+print(pca_summary, row.names = FALSE)
+
+# Scree plot con línea en y = 10
+fviz_eig(pca_result, addlabels = TRUE, linecolor = "red") +
+  geom_hline(yintercept = 10, linetype = "dashed", color = "red")
+
+# Extraer puntuaciones de los jugadores en las componentes principales
+pca_scores <- as.data.frame(pca_result$x)
+
+# Nos quedamos solo con PC1 y PC2
+pca_scores <- pca_scores[, c("PC1", "PC2")]
+
+# Unir PC1 y PC2 a la base original
+sample_pca_with_scores <- cbind(sample, pca_scores)
+```
+
+**6- Interprete las cargas factoriales de las primeras dos componentes principales. ¿Qué atributos de los jugadores están más representados en cada componente? Mostrar el biplot del PCA realizado.**
+
+El análisis de las cargas factoriales revela la estructura subyacente de los datos en el espacio reducido definido por las dos primeras componentes principales. La primera componente (`PC1`), que explica el 53.3 % de la varianza, está fuertemente influenciada por variables técnicas y físicas relacionadas con la movilidad y la calidad ofensiva. Entre ellas se destacan `agility`, `sprint_speed`, `dribbling`, `ball_control`, `short_pass` y `long_pass.` Todas estas variables presentan cargas positivas elevadas sobre `PC1`, lo que sugiere que esta dimensión sintetiza un eje de desempeño técnico-dinámico. En otras palabras, `PC1` distingue a los jugadores con mayores niveles de habilidad, velocidad y precisión en el manejo del balón.
+
+La segunda componente (`PC2`), que explica un 21.8 % adicional de la varianza, está dominada por variables físicas clásicas como `strength`, `height`, `weight` y `age`, que presentan cargas positivas notables sobre este eje. Esta dimensión puede interpretarse como un eje de robustez física y experiencia, que separa a los jugadores más corpulentos y veteranos del resto.
+
+El biplot permite visualizar gráficamente cómo se proyectan estas variables en el plano definido por las dos componentes. La orientación y longitud de los vectores reflejan el grado de asociación de cada variable con las componentes principales. Variables agrupadas y alineadas (por ejemplo, `short_pass` y `long_pass`) están positivamente correlacionadas, mientras que aquellas perpendiculares o opuestas representan dimensiones distintas.
+
+En conjunto, el análisis muestra que los atributos más representativos en la primera componente son de tipo técnico y funcional, mientras que la segunda componente está más asociada a características físicas estructurales. Esta separación sugiere que el PCA logra capturar de forma efectiva dos dimensiones relevantes y complementarias en el análisis del perfil de los jugadores.
+
+```{r}
+# Biplot solo con las variables (cargas factoriales)
+fviz_pca_var(pca_result,
+             col.var = "steelblue",
+             repel = TRUE,
+             title = "Biplot de variables: PC1 vs PC2")
+```
+
+**7- Identifique si hay agrupamientos naturales de jugadores en función de las características seleccionadas. Interprete y concluya.**
+
+Se exploró la existencia de agrupamientos naturales proyectando a los jugadores en el plano definido por las dos primeras componentes principales (`PC1` y `PC2`). La distribución visual sugiere la presencia de zonas de densidad diferenciadas.
+
+
+Para cuantificar estos posibles agrupamientos, se aplicó el algoritmo k-means. Se evaluó el número óptimo de clusters utilizando dos métodos estadísticos complementarios: el método del codo (Elbow Method) y el índice de silueta promedio (Silhouette Method). El gráfico del codo sugiere un punto de inflexión claro en k = 3, donde la ganancia marginal en la reducción de la suma de cuadrados intra-cluster comienza a decrecer significativamente. No obstante, el método de silueta identifica un máximo local en k = 2, lo que sugiere que desde el punto de vista de separación entre grupos, dos clusters explicarían mejor la estructura del espacio. En este caso, se optó por conservar k = 3 debido a su mejor interpretación sustantiva: un grupo técnico, uno físico y uno de menor rendimiento. Además, los tres grupos obtenidos mostraron una segmentación coherente con los perfiles derivados del PCA.
+
+El gráfico de clustering muestra claramente tres grupos diferenciados:
+
+- Grupo 1 (verde): ocupa una zona inferior central, con puntuaciones más bajas tanto en `PC1` como en `PC2`. Representa a jugadores con menor rendimiento técnico y físico relativo dentro de la muestra, posiblemente de menor protagonismo en el ambiente del fútbol.
+
+- Grupo 2 (rojo): ubicado hacia la derecha del plano, está compuesto por jugadores con puntuaciones altas en `PC1`. Esto indica altos niveles técnicos, como buen control del balón, agilidad, velocidad y capacidad de pase. Se interpreta como el grupo de jugadores técnicos.
+
+- Grupo 3 (azul): situado en el extremo izquierdo con puntuaciones altas en `PC2` pero bajas en `PC1`, agrupa a jugadores con características físicas marcadas (mayor fuerza, estatura y peso) pero menor capacidad técnica. Este perfil sugiere un grupo de jugadores físicos.
+
+
+Este análisis evidencia que, incluso tras una reducción de dimensionalidad, es posible identificar agrupamientos latentes coherentes con distintos perfiles de jugador. Los resultados del PCA y del clustering se complementan, permitiendo caracterizar y segmentar la muestra de manera interpretable.
+
+
+```{r}
+# Scatter Plot 
+ggplot(sample_pca_with_scores, aes(x = PC1, y = PC2)) +
+  geom_point(alpha = 0.7, color = "darkgray") +
+  labs(
+    title = "Agrupamiento visual de jugadores - PC1 vs PC2",
+    x = "Componente Principal 1",
+    y = "Componente Principal 2"
+  ) +
+  theme_minimal()
+
+# Elección óptima de clusters 
+fviz_nbclust(pca_scores[, c("PC1", "PC2")], kmeans, method = "wss") +
+  labs(title = "Elbow Method - Número óptimo de clusters")
+
+fviz_nbclust(pca_scores[, c("PC1", "PC2")], kmeans, method = "silhouette") +
+  labs(title = "Silhouette Method - Número óptimo de clusters")
+
+# K-means con k = 3 sobre PC1 y PC2
+kmeans_result <- kmeans(pca_scores[, c("PC1", "PC2")], centers = 3, nstart = 25)
+
+# Agregar grupos al dataset
+sample_pca_with_scores$grupo <- as.factor(kmeans_result$cluster)
+
+# Plot
+ggplot(sample_pca_with_scores, aes(x = PC1, y = PC2, color = grupo)) +
+  geom_point(alpha = 0.7, size = 1.8) +
+  scale_color_manual(values = c("green", "red", "blue"),
+                     labels = c("Grupo 1", "Grupo 2", "Grupo 3")) +
+  labs(title = "Clustering de jugadores sobre PC1 y PC2",
+       x = "Componente Principal 1",
+       y = "Componente Principal 2",
+       color = "Grupo") +
+  theme_minimal()
+```
+
+**8- Elegir una técnica de PCA robusto y aplicarla sobre la base de datos. Compare los resultados con los obtenidos anteriormente. Concluir.**
+
+Se aplicó una versión robusta del Análisis de Componentes Principales utilizando el método RMCD (Minimum Covariance Determinant), una técnica diseñada para mitigar la influencia de valores atípicos multivariados. A diferencia del PCA clásico, que se basa en la matriz de covarianza estándar y por tanto es sensible a outliers, el enfoque robusto estima una matriz de correlación resistente construida a partir de un subconjunto central de las observaciones más representativas.
+
+Los resultados muestran una distribución más equilibrada de la varianza explicada entre las componentes. En particular, la primera componente principal del PCA robusto explicó un 38 % de la varianza total, sensiblemente menor al 53.3 % observado en el análisis clásico. Esta diferencia puede sugerir que el PCA clásico podría haber sobreestimado la importancia de una única dimensión latente debido a la influencia de valores extremos. En contraste, el descenso en la varianza explicada por `PC1` y el mayor peso relativo de `PC2` y `PC3` en el enfoque robusto sugieren una estructura subyacente más distribuida y menos sesgada por observaciones atípicas. Se decidió conservar únicamente las dos primeras componentes principales, ya que explican el 65.4 % de la varianza total, presentan un quiebre claro en el scree plot y, si bien la tercera componente cumple el criterio de Kaiser, aporta una ganancia marginal reducida que no justifica la complejidad adicional para comparar con el PCA clásico.
+
+Sin embargo, al contrastar los biplots del PCA clásico y el PCA robusto, se observa que, pese a la presencia de outliers revelada en los boxplots, el análisis clásico muestra una estructura más clara y direccional, especialmente sobre `PC1`, donde las variables técnicas se agrupan con mayor coherencia. En cambio, el PCA robusto atenúa esas direcciones, reflejando cargas más conservadoras y compactas. Si bien esto puede ser ventajoso en contextos con distorsiones severas, en este caso el robustecimiento no mejora sustancialmente la interpretabilidad ni revela patrones latentes distintos, lo que sugiere que el PCA clásico, pese a su sensibilidad, retiene mejor la variabilidad relevante para caracterizar perfiles de jugadores.
+
+
+Visualmente, se puede observar en el gráfico de K-means que los jugadores se proyectaron de manera similar sobre las nuevas componentes principales (`PC1_rob` y `PC2_rob`), manteniéndose una estructura de agrupamiento coherente con la obtenida bajo el PCA clásico. Si bien las fronteras entre grupos siguen siendo claras, no se observan mejoras significativas en la compactación o separación. En este caso, el PCA robusto confirmó la segmentación anterior, ofreciendo una solución menos sensible a valores extremos sin alterar sustancialmente la estructura latente de los datos.
+
+En conclusión, la aplicación del PCA robusto permitió evaluar el impacto de los valores atípicos en la estructura latente del conjunto de datos. Aunque logró distribuir de forma más equilibrada la varianza explicada entre componentes y atenuar la influencia de observaciones extremas, no mejoró sustancialmente la interpretabilidad ni la segmentación de los jugadores respecto al análisis clásico. De hecho, el PCA tradicional mostró cargas más direccionadas y coherentes con los atributos técnicos y físicos, mientras que el robusto ofreció una representación más conservadora. Si bien ambos enfoques convergen en una estructura de agrupamiento similar, la versión clásica parece capturar con mayor fidelidad los perfiles diferenciados en este caso, sin que los outliers comprometan de forma crítica la validez del análisis.
+
+
+```{r}
+# Covarianza robusta
+cov_rob <- CovMcd(sample_pca_scaled)
+
+# Convertir la matriz de covarianza a matriz de correlación
+D <- sqrt(diag(cov_rob@cov))
+cor_matrix <- cov_rob@cov / (D %*% t(D))
+
+# PCA sobre la matriz de correlación robusta
+eigen_decomp <- eigen(cor_matrix)
+eigenvectors <- eigen_decomp$vectors
+
+eigenvalues <- eigen_decomp$values
+diffs <- c(NA, diff(eigenvalues))
+proportion <- eigenvalues / sum(eigenvalues)
+cumulative <- cumsum(proportion)
+
+pca_rob_summary <- data.frame(
+  Component = paste0("", seq_along(eigenvalues)),
+  Eigenvalue = round(eigenvalues, 4),
+  Difference = round(diffs, 4),
+  Proportion = round(proportion, 4),
+  Cumulative = round(cumulative, 4)
+)
+
+print(pca_rob_summary, row.names = FALSE)
+
+# Scree plot con línea en 10
+pca_rob_summary <- pca_rob_summary[order(-pca_rob_summary$Proportion), ]
+pca_rob_summary$Component <- factor(pca_rob_summary$Component,
+                                            levels = pca_rob_summary$Component)
+
+ggplot(pca_rob_summary, aes(x = Component, y = Proportion * 100, group = 1)) +
+  geom_bar(stat = "identity", fill = "steelblue", color = "black") +
+  geom_text(aes(label = paste0(round(Proportion * 100, 1), "%")),
+            vjust = -0.5, size = 3.5) +
+  geom_line(color = "red", linewidth = 1) +
+  geom_point(color = "red", size = 2) +
+  geom_hline(yintercept = 10, linetype = "dashed", color = "darkred") +
+  labs(
+    title = "Scree plot (PCA robusto)",
+    x = "Dimensions",
+    y = "Percentage of explained variances"
+  ) +
+  theme_minimal()
+
+# Extraer puntuaciones (scores) proyectando las observaciones
+scores_rob <- as.data.frame(as.matrix(sample_pca_scaled) %*% eigenvectors)
+colnames(scores_rob) <- paste0("PC", 1:ncol(scores_rob), "_rob")
+
+# Nos quedamos solo con PC1_rob y PC2_rob
+scores_rob_subset <- scores_rob[, c("PC1_rob", "PC2_rob")]
+
+# Unir PC1_rob y PC2_rob a la base original
+sample_pca_with_scores <- cbind(sample_pca_scaled, scores_rob_subset)
+
+# Cargas factoriales (loadings)
+loadings_rob <- eigenvectors[, 1:2]
+rownames(loadings_rob) <- colnames(sample_pca_scaled)
+colnames(loadings_rob) <- c("PC1_rob", "PC2_rob")
+
+# Pasar a data.frame
+loadings_df <- as.data.frame(loadings_rob)
+loadings_df$Variable <- rownames(loadings_df)
+
+# Biplot
+ggplot(loadings_df, aes(x = 0, y = 0)) +
+  geom_segment(aes(xend = PC1_rob, yend = PC2_rob), 
+               arrow = arrow(length = unit(0.2, "cm")), 
+               color = "steelblue") +
+  geom_text_repel(aes(x = PC1_rob, y = PC2_rob, label = Variable), 
+                  size = 4, color = "steelblue") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  labs(title = "Biplot de variables (PCA robusto)",
+       x = paste0("Dim 1 (", round(proportion[1] * 100, 1), "% of Var)"),
+       y = paste0("Dim 2 (", round(proportion[2] * 100, 1), "% of Var)")) +
+  theme_minimal()
+
+# K-means con k = 3 sobre PCA robusto
+kmeans_rob <- kmeans(scores_rob_subset[, c("PC1_rob", "PC2_rob")], centers = 3, nstart = 25)
+
+# Agregar grupos al dataset
+scores_rob_subset$grupo_rob <- as.factor(kmeans_rob$cluster)
+
+# Graficar clustering
+ggplot(scores_rob_subset, aes(x = PC1_rob, y = PC2_rob, color = grupo_rob)) +
+  geom_point(alpha = 0.7, size = 1.8) +
+  scale_color_manual(values = c("green", "red", "blue"),
+                     labels = c("Grupo 1", "Grupo 2", "Grupo 3")) +
+  labs(title = "Clustering de jugadores sobre PC1_rob y PC2_rob",
+       x = "Componente Principal 1",
+       y = "Componente Principal 2",
+       color = "Grupo") +
+  theme_minimal()
+
+
+```

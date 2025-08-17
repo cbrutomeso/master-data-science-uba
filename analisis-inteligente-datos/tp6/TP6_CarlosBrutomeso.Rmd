@@ -1,0 +1,129 @@
+---
+title: "Trabajo Práctico 6: Regresión Logística"
+author: "Carlos Brutomeso"
+date: "29/06/2025"
+output:
+  html_document:
+    toc: yes
+    code_folding: show
+    toc_float: yes
+    df_print: paged
+    theme: united
+    code_download: true
+---
+# Introducción
+
+El objetivo de este trabajo práctico es evaluar la efectividad de una nueva vacuna contra la gripe durante la temporada invernal, considerando la influencia de la zona de residencia (urbana o rural) sobre la probabilidad de vacunarse y de enfermarse. Para ello, se simulan datos de un estudio realizado sobre 200 personas, y se analizan los resultados obtenidos.
+
+# 1. Simular Datos
+
+A continuación, se simulan los datos siguiendo las indicaciones del enunciado:
+
+```{r}
+set.seed(123)
+n <- 200
+# Variables
+urbano <- rbinom(n, 1, 0.6) # 60% urbano
+vacunado <- rbinom(n, 1, ifelse(urbano == 1, 0.7, 0.4)) # mayor vacunación urbana
+logit_p <- -2 - 1.5 * vacunado + 0.5 * urbano
+prob <- 1 / (1 + exp(-logit_p))
+enfermo <- rbinom(n, 1, prob)
+datos <- data.frame(vacunado, urbano, enfermo)
+head(datos)
+```
+
+Se generaron 200 observaciones con las variables: vacunado, urbano y enfermo, siguiendo las probabilidades y relaciones propuestas en el enunciado.
+
+# 2. Análisis
+
+## A. Exploración de los datos
+
+Se explora la relación entre vacunación y enfermedad:
+
+```{r}
+# Tabla de contingencia vacunado vs enfermo
+tabla_vacunado_enfermo <- table(datos$vacunado, datos$enfermo)
+tabla_vacunado_enfermo
+# Proporciones por fila
+prop.table(tabla_vacunado_enfermo, 1)
+```
+
+## B. Modelo simple: efecto de la vacuna
+
+Se ajusta un modelo logístico simple para estimar el efecto de la vacuna sobre la probabilidad de enfermarse:
+
+```{r}
+modelo1 <- glm(enfermo ~ vacunado, data = datos, family = binomial)
+summary(modelo1)
+# Calcular OR y efectividad
+OR1 <- exp(coef(modelo1)[2])
+efec1 <- (1 - OR1) * 100
+cat("OR vacuna:", round(OR1, 3), "\n")
+cat("Efectividad sin ajustar:", round(efec1, 1), "%\n")
+```
+
+## C. Modelo ajustado: efecto de la vacuna y zona
+
+Se ajusta un modelo logístico incluyendo la variable zona (urbano/rural):
+
+```{r}
+modelo2 <- glm(enfermo ~ vacunado + urbano, data = datos, family = binomial)
+summary(modelo2)
+# Calcular ORs y efectividad
+OR_vacuna <- exp(coef(modelo2)[2])
+OR_urbano <- exp(coef(modelo2)[3])
+efec2 <- (1 - OR_vacuna) * 100
+cat("OR vacuna (ajustado):", round(OR_vacuna, 3), "\n")
+cat("OR zona urbana:", round(OR_urbano, 3), "\n")
+cat("Efectividad ajustada:", round(efec2, 1), "%\n")
+```
+
+# 3. Preguntas
+
+## A. Interpretación de resultados
+
+**1. Si el OR de la vacuna es 0.38, ¿qué significa esto en términos de riesgo?**
+
+El odds ratio (OR) de la vacuna compara la probabilidad de enfermar entre vacunados y no vacunados. Un OR < 1 indica protección. Por consiguiente, un OR de 0.38 para la vacuna indica que las personas vacunadas tienen un 62% menos de probabilidades (odds) de enfermarse de gripe en comparación con las no vacunadas.
+
+**2. ¿Cómo interpreta una efectividad del 62 %?**
+
+La efectividad del 62% significa que la vacuna previene el 62% de los casos de gripe que se hubieran esperado en ausencia de vacunación. En otras palabras, de cada 100 personas que se hubieran enfermado sin vacunarse, solo 38 se enferman si están vacunadas.
+
+**3. Si el OR de zona urbana es 1.58, ¿las personas urbanas tienen mayor o menor riesgo que las rurales?**
+
+Un OR > 1 implica mayor probabilidad del evento en el grupo de referencia respecto al comparador. Por lo tanto, un OR de 1.58 para la zona urbana indica que las personas que viven en zonas urbanas tienen un 58% más de probabilidades (odds) de enfermarse de gripe en comparación con quienes viven en zonas rurales, manteniendo constante el estado de vacunación.
+
+**4. ¿Por qué la efectividad puede cambiar entre el modelo simple y el ajustado?**
+
+La efectividad puede cambiar entre el modelo simple y el ajustado porque el modelo ajustado tiene en cuenta el efecto de variables adicionales (en este caso, la zona de residencia). Si la zona de residencia está asociada tanto a la probabilidad de vacunarse como al riesgo de enfermarse, no ajustarla puede sesgar la estimación del efecto de la vacuna. El modelo ajustado permite estimar el efecto de la vacuna controlando por la zona, brindando una estimación más precisa y menos sesgada de la efectividad real de la vacuna.
+
+## B. Limitaciones del estudio observacional
+
+**1. ¿Qué otras variables confusoras no controladas podrían afectar los resultados?**
+
+Entre las variables confusoras que podrían no haberse controlado en este estudio se encuentran, en primer lugar, las condiciones clínicas de los participantes. Enfermedades crónicas como EPOC, diabetes o inmunosupresión, así como el índice de masa corporal, pueden influir tanto en la probabilidad de vacunarse (por priorización o búsqueda de protección) como en el riesgo de enfermar. También es relevante la historia de exposición: trabajar en sanidad o transporte, o vivir en hogares numerosos, incrementa las oportunidades de contacto con el patógeno y suele aumentar la intención de vacunarse. Los comportamientos relacionados con la salud, como el uso de mascarilla, el distanciamiento social, el tabaquismo o la actividad física, actúan de manera similar, ya que quienes son más cuidadosos tienden a vacunarse con mayor frecuencia y, al mismo tiempo, reducen su riesgo basal. El acceso y uso del sistema de salud (por ejemplo, la cobertura médica, la distancia a un centro sanitario o la frecuencia de chequeos) condicionan tanto la vacunación como la detección oportuna de casos. A esto se suman factores socioeconómicos como el nivel educativo, el ingreso familiar o el hacinamiento, y características del entorno, entre ellas la densidad poblacional y la calidad del aire, que pueden sesgar la relación entre vacuna y enfermedad. Además, la dimensión temporal es clave: la semana o el mes de vacunación, las variantes circulantes y el tiempo transcurrido desde la dosis pueden modificar tanto la exposición como la eficacia observada.
+
+**2. ¿Cómo se le ocurre que podría intentar controlar o advertir acerca de estos potenciales efectos de variables no medidas?**
+
+Para controlar o advertir sobre el efecto de variables no medidas, existen diversas estrategias. En la fase de diseño, es fundamental planificar la recolección de información sobre posibles variables confusoras y, en la medida de lo posible, ajustarlas en el análisis estadístico, por ejemplo, incluyendo edad, comorbilidades u otros factores relevantes en el modelo. Otra alternativa es realizar un diseño de estudio más controlado, como un ensayo clínico aleatorizado, donde la asignación a vacunación sea al azar, lo que permite equilibrar características conocidas y desconocidas entre los grupos.
+
+Durante el análisis, se pueden emplear métodos estadísticos como el emparejamiento o la ponderación por puntaje de propensión (propensity score matching) para balancear los grupos en función de variables observadas. Finalmente, es importante advertir explícitamente en las conclusiones sobre la posibilidad de sesgo por variables no medidas y la limitación inherente a los estudios observacionales, para que los resultados sean interpretados con la cautela necesaria.
+
+## C. Causalidad vs asociación
+
+**1. ¿Este estudio demuestra que la vacuna es la causa de la protección contra la enfermedad?**
+
+No, este estudio observacional no permite afirmar con certeza que la vacuna sea la causa de la protección contra la enfermedad. Si bien se observa una asociación entre la vacunación y un menor riesgo de gripe, pueden existir variables confusoras no medidas que expliquen parte o la totalidad de la asociación observada. Un estudio experimental (ensayo clínico aleatorizado) podría establecer causalidad de manera más robusta.
+
+**2. ¿Cómo comunicaría estos resultados sin sobrestimar la evidencia?**
+
+Se debe comunicar que los resultados muestran una asociación significativa entre la vacunación y una menor probabilidad de enfermarse de gripe, incluso luego de ajustar por zona de residencia. Sin embargo, al tratarse de un estudio observacional, no se puede descartar la influencia de variables no medidas y, por lo tanto, no se puede afirmar causalidad. Es importante recomendar la interpretación cautelosa de los resultados y sugerir la necesidad de estudios experimentales para confirmar el efecto causal de la vacuna.
+
+# Conclusiones
+
+En este trabajo se simuló un estudio observacional para evaluar la efectividad de una nueva vacuna contra la gripe, considerando la influencia de la zona de residencia. Los resultados muestran que la vacunación se asocia a una reducción significativa en el riesgo de enfermarse, con una efectividad estimada cercana al 62% en el modelo simple y valores similares tras ajustar por zona urbana/rural. Además, se observó que vivir en zona urbana podría aumentar el riesgo de gripe en comparación con la zona rural.
+
+Sin embargo, al tratarse de un estudio observacional, no se puede afirmar causalidad debido a la posible presencia de variables confusoras no medidas, como edad, estado de salud, nivel socioeconómico y comportamientos preventivos. Es fundamental interpretar los resultados con cautela y considerar estas limitaciones al comunicar la evidencia. Para confirmar el efecto causal de la vacuna, serían necesarios estudios experimentales más controlados, como ensayos clínicos aleatorizados.
+
+En síntesis, la evidencia sugiere que la vacuna es efectiva para reducir el riesgo de gripe, pero se recomienda continuar investigando y recolectando información sobre posibles factores de confusión para fortalecer la validez de las conclusiones.
